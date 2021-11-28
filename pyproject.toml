@@ -1,0 +1,17 @@
+[build-system]
+requires = ["flit_core >=2,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.metadata]
+module = "affinity2kicad"
+author = "Alethea Katherine Flowers"
+author-email = "thea@winterbloom.com"
+home-page = "https://github.com/wntrblm/affinity2kicad"
+classifiers = ["License :: OSI Approved :: MIT License"]
+requires = [
+    "cairosvg",
+    "svgpathtools",
+    "rich",
+    "defusedxml",
+    "cssselect2",
+]
