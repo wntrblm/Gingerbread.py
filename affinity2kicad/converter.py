@@ -79,6 +79,7 @@ class Converter:
         )
 
         # Now that the PCB offset is known, we can start building the PCB.
+        self.pcb.bbox = self.bbox
         self.pcb.offset = self.bbox[:2]
         self.pcb.start()
         self.pcb.add_horizontal_measurement(0, 0, self.bbox[2], 0)
@@ -128,6 +129,7 @@ class Converter:
         console.print()
 
         # Now that the PCB offset is known, we can start building the PCB.
+        self.pcb.bbox = self.bbox
         self.pcb.offset = self.bbox[:2]
         self.pcb.start()
         self.pcb.add_horizontal_measurement(0, 0, self.bbox[2], 0)
@@ -198,9 +200,9 @@ class Converter:
 
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
+                    layer_name, mod, cached = result
 
-                    if result:
-                        layer_name, mod, cached = result
+                    if mod:
                         self.pcb.add_mod(
                             mod, self.centroid[0], self.centroid[1], relative=False
                         )
@@ -231,7 +233,7 @@ def convert_layer(doc, tmpdir, src_layer_name, dst_layer_name):
     doc = doc.copy()
 
     if not doc.remove_layers(keep=[src_layer_name]):
-        return
+        return src_layer_name, None, False
 
     doc.recolor(src_layer_name)
     svg_text = doc.tostring()

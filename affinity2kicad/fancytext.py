@@ -46,6 +46,11 @@ class FancyText:
         self.line_spacing = line_spacing
         self.bbox = [0, 0, 0, 0]
 
+    @classmethod
+    def add(self, *, x, y, pcb, text, layer, **kwargs):
+        ft = FancyText(**kwargs)
+        pcb.add_mod(ft.generate(text, layer=layer), x, y)
+
     def generate(self, text, layer="F.SilkS"):
         workdir = os.path.join(".", ".cache")
         png_path = os.path.join(workdir, "fancytext.png")

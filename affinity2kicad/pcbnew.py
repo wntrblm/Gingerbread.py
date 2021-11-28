@@ -28,6 +28,7 @@ class PCB:
         self.comment2 = "CC BY-NC-ND 4.0"
         self.comment3 = ""
         self.comment4 = ""
+        self.bbox = (0, 0, 0, 0)
 
     def start(
         self,
