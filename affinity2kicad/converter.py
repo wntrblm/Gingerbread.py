@@ -48,7 +48,7 @@ class Converter:
 
     def _convert_outline_rect(self):
         # Simplest case - the outline is just a rectangle.
-        rects = list(self.doc.query_all("#EdgeCuts rect"))
+        rects = list(self.doc.query_all("#EdgeCuts rect")) + list(self.doc.query_all("rect#EdgeCuts"))
 
         if not rects:
             return None
@@ -103,6 +103,9 @@ class Converter:
         # Complex case - edge cuts is a path
         edge_cuts = list(self.doc.query_all("#EdgeCuts"))[0]
 
+        if edge_cuts.local_name == "g":
+            edge_cuts = list(self.doc.query_all("#EdgeCuts path"))[0]
+
         if edge_cuts.local_name != "path":
             raise ValueError("Edge cuts is not a path")
 
@@ -114,7 +117,7 @@ class Converter:
         ]
 
         if bbox[0] != 0 or bbox[1] != 0:
-            raise ValueError("Edge.Cuts x,y is not 0,0.")
+            raise ValueError(f"Edge.Cuts x,y is not 0,0, found {bbox}")
 
         self.bbox = (
             self.pcb.page_width / 2 - bbox[2],

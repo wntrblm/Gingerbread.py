@@ -7,10 +7,6 @@ import math
 import datetime
 
 
-def _vector_length(x, y):
-    return math.sqrt((x ** 2 + y ** 2))
-
-
 class PCB:
     # US Letter
     page_width = 279.4
@@ -22,7 +18,7 @@ class PCB:
         self.text = io.StringIO()
         self.title = title
         self.rev = rev
-        self.date = datetime.date.today().isoformat().replace("-", "/")
+        self.date = datetime.date.today().strftime("%Y-%m-%d")
         self.company = "Winterbloom"
         self.comment1 = "Alethea Flowers"
         self.comment2 = "CC BY-NC-ND 4.0"
@@ -72,32 +68,25 @@ class PCB:
         y1,
         x2,
         y2,
-        crossbar_offset=3,
-        arrow_span=0.6,
-        arrow_length=1.1,
         text_size=1,
         text_thickness=0.15,
+        below=False,
     ):
-        width = x2 - x1
-        height = y2 - y1
-        length = round(_vector_length(width, height), 2)
+        value = round(x2 - x1, 2)
         x1 += self.offset[0]
         y1 += self.offset[1]
         x2 += self.offset[0]
         y2 += self.offset[1]
         self.text.write(
-            _horizontal_measurement_template(
+            _aligned_measurement_template(
                 x1,
                 y1,
                 x2,
                 y2,
-                length,
-                width,
-                crossbar_offset,
-                arrow_length,
-                arrow_span,
-                text_size,
-                text_thickness,
+                value=value,
+                height=3 if below else -3,
+                text_size=text_size,
+                text_thickness=text_thickness
             )
         )
 
@@ -107,32 +96,25 @@ class PCB:
         y1,
         x2,
         y2,
-        crossbar_offset=-3,
-        arrow_span=0.6,
-        arrow_length=1.1,
         text_size=1,
         text_thickness=0.15,
+        right=False,
     ):
-        width = x2 - x1
-        height = y2 - y1
-        length = round(_vector_length(width, height), 2)
+        value = round(y2 - y1, 2)
         x1 += self.offset[0]
         y1 += self.offset[1]
         x2 += self.offset[0]
         y2 += self.offset[1]
         self.text.write(
-            _vertical_measurement_template(
+            _aligned_measurement_template(
                 x1,
                 y1,
                 x2,
                 y2,
-                length,
-                height,
-                crossbar_offset,
-                arrow_length,
-                arrow_span,
-                text_size,
-                text_thickness,
+                value=value,
+                height=-3 if right else 3,
+                text_size=text_size,
+                text_thickness=text_thickness
             )
         )
 
@@ -175,18 +157,13 @@ def _pcb_start_template(
     origin_y,
 ):
     return f"""
-(kicad_pcb (version 20171130) (host pcbnew "(5.1.6-0-10_14)")
+(kicad_pcb (version 20211014) (generator affinity2kicad)
 
   (general
     (thickness 1.6)
-    (drawings 6)
-    (tracks 0)
-    (zones 0)
-    (modules 57)
-    (nets 1)
   )
 
-  (page USLetter)
+  (paper "USLetter")
   (title_block
     (title "{title}")
     (date "{date}")
@@ -199,53 +176,30 @@ def _pcb_start_template(
   )
 
   (layers
-    (0 F.Cu signal hide)
-    (31 B.Cu signal hide)
-    (36 B.SilkS user)
-    (37 F.SilkS user)
-    (38 B.Mask user)
-    (39 F.Mask user)
-    (40 Dwgs.User user)
-    (41 Cmts.User user)
-    (44 Edge.Cuts user)
+    (0 "F.Cu" signal)
+    (31 "B.Cu" signal)
+    (36 "B.SilkS" user "B.Silkscreen")
+    (37 "F.SilkS" user "F.Silkscreen")
+    (38 "B.Mask" user)
+    (39 "F.Mask" user)
+    (40 "Dwgs.User" user "User.Drawings")
+    (41 "Cmts.User" user "User.Comments")
+    (44 "Edge.Cuts" user)
   )
 
   (setup
-    (last_trace_width 0.25)
-    (trace_clearance 0.2)
-    (zone_clearance 0.508)
-    (zone_45_only no)
-    (trace_min 0.2)
-    (via_size 0.8)
-    (via_drill 0.4)
-    (via_min_size 0.4)
-    (via_min_drill 0.3)
-    (uvia_size 0.3)
-    (uvia_drill 0.1)
-    (uvias_allowed no)
-    (uvia_min_size 0.2)
-    (uvia_min_drill 0.1)
-    (edge_width 0.5)
-    (segment_width 0.2)
-    (pcb_text_width 0.3)
-    (pcb_text_size 1.5 1.5)
-    (mod_edge_width 0.12)
-    (mod_text_size 1 1)
-    (mod_text_width 0.15)
-    (pad_size 1.524 1.524)
-    (pad_drill 0.762)
     (pad_to_mask_clearance 0.05)
-    (aux_axis_origin 0 0)
-    (grid_origin {origin_x} {origin_y})
-    (visible_elements FFFFFF7F)
+    (grid_origin {origin_x:0.4f} {origin_y:0.4f})
     (pcbplotparams
-      (layerselection 0x010fc_ffffffff)
+      (layerselection 0x00010fc_ffffffff)
+      (disableapertmacros false)
       (usegerberextensions false)
       (usegerberattributes true)
       (usegerberadvancedattributes true)
       (creategerberjobfile true)
+      (svguseinch false)
+      (svgprecision 6)
       (excludeedgelayer true)
-      (linewidth 0.100000)
       (plotframeref false)
       (viasonmask false)
       (mode 1)
@@ -253,43 +207,46 @@ def _pcb_start_template(
       (hpglpennumber 1)
       (hpglpenspeed 20)
       (hpglpendiameter 15.000000)
+      (dxfpolygonmode true)
+      (dxfimperialunits true)
+      (dxfusepcbnewfont true)
       (psnegative false)
       (psa4output false)
       (plotreference true)
       (plotvalue true)
       (plotinvisibletext false)
-      (padsonsilk false)
+      (sketchpadsonfab false)
       (subtractmaskfromsilk true)
       (outputformat 1)
       (mirror false)
       (drillshape 1)
       (scaleselection 1)
-      (outputdirectory "gerbers"))
+      (outputdirectory "gerbers")
+    )
   )
 
   (net 0 "")
-
-  (net_class Default "This is the default net class."
-    (clearance 0.2)
-    (trace_width 0.25)
-    (via_dia 0.8)
-    (via_drill 0.4)
-    (uvia_dia 0.3)
-    (uvia_drill 0.1)
-  )
 """
 
 
 def _drill_template(x, y, d):
     return f"""
-        (module Drill:Hole (layer F.Cu) (tedit 60E3390D) (tstamp 60E399A3)
-        (at {x:.2f} {y:.2f})
-        (descr "drill hole")
-        (tags "")
-        (attr virtual)
-        (pad "" np_thru_hole circle (at 0 0) (size {d:.2f} {d:.2f}) (drill {d:.2f}) (layers *.Cu *.Mask)
-        (clearance 0.1) (zone_connect 0))
-    )"""
+        (footprint "Drill:Hole" (layer "F.Cu")
+            (tedit 60E3390D) (tstamp 00000000-0000-0000-0000-000060e399a3)
+            (at {x:.2f} {y:.2f})
+            (descr "drill hole")
+            (attr exclude_from_pos_files exclude_from_bom)
+            (pad "" np_thru_hole circle locked
+                (at 0 0)
+                (size {d:.2f} {d:.2f})
+                (drill {d:.2f})
+                (layers *.Cu *.Mask)
+                (clearance 0.1)
+                (zone_connect 0)
+                (tstamp ad4de56d-a553-4c14-9eba-511eb66d077a)
+            )
+        )
+    """
 
 
 def _outline_template(x, y, width, height):
@@ -301,72 +258,60 @@ def _outline_template(x, y, width, height):
     """
 
 
-def _horizontal_measurement_template(
+def _aligned_measurement_template(
     x1,
     y1,
     x2,
     y2,
-    length,
-    width,
-    crossbar_offset,
-    arrow_length,
-    arrow_span,
-    text_size,
-    text_thickness,
+    value,
+    height=3,
+    text_size=1.27,
+    text_thickness=0.15
 ):
     return f"""
-        (dimension {length:.2f} (width 0.15) (layer Dwgs.User)
-            (gr_text "{length:.2f} mm" (at {x1 + width / 2:.1f} {y1 - crossbar_offset - math.copysign(1, crossbar_offset):0.1f}) (layer Dwgs.User)
-            (effects (font (size {text_size:.2f} {text_size:.2f}) (thickness {text_thickness:.2f})))
+    (dimension
+        (type aligned)
+        (layer "Dwgs.User")
+        (tstamp 0557ead8-3208-42e1-b732-3b72dd768ea0)
+        (pts (xy {x1:.2f} {y1:.2f}) (xy {x2:.2f} {y2:.2f}))
+        (height {height:0.2f})
+        (gr_text "{value:.2f} mm"
+            (at {x1:.1f} {y1 + height / 2:.1f})
+            (layer "Dwgs.User")
+            (tstamp 0557ead8-3208-42e1-b732-3b72dd768ea0)
+            (effects
+                (font (size {text_size:.2f} {text_size:.2f}) (thickness {text_thickness:.2f}))
             )
-            (feature1 (pts (xy {x2:.2f} {y2:.2f}) (xy {x2:.2f} {y2 - crossbar_offset:.2f})))
-            (feature2 (pts (xy {x1:.2f} {y1:.2f}) (xy {x1:.2f} {y1 - crossbar_offset:.2f})))
-            (crossbar (pts (xy {x1:.2f} {y1 - crossbar_offset:.2f}) (xy {x2:.2f} {y2 - crossbar_offset:.2f})))
-            (arrow1a (pts (xy {x2:.2f} {y2 - crossbar_offset:.2f}) (xy {x2 - arrow_length:.2f} {y2 - crossbar_offset - arrow_span:.2f})))
-            (arrow1b (pts (xy {x2:.2f} {y2 - crossbar_offset:.2f}) (xy {x2 - arrow_length:.2f} {y2 - crossbar_offset + arrow_span:.2f})))
-            (arrow2a (pts (xy {x1:.2f} {y1 - crossbar_offset:.2f}) (xy {x1 + arrow_length:.2f} {y1 - crossbar_offset - arrow_span:.2f})))
-            (arrow2b (pts (xy {x1:.2f} {y1 - crossbar_offset:.2f}) (xy {x1 + arrow_length:.2f} {y1 - crossbar_offset + arrow_span:.2f})))
         )
-        """
-
-
-def _vertical_measurement_template(
-    x1,
-    y1,
-    x2,
-    y2,
-    length,
-    height,
-    crossbar_offset,
-    arrow_length,
-    arrow_span,
-    text_size,
-    text_thickness,
-):
-    orientation = 90 if crossbar_offset < 1 else 270
-    return f"""
-    (dimension {length:.2f} (width 0.15) (layer Dwgs.User)
-        (gr_text "{length:.2f} mm" (at {x1 + crossbar_offset + math.copysign(1, crossbar_offset):.1f} {y1 + height / 2:.1f} {orientation}) (layer Dwgs.User)
-        (effects (font (size {text_size:.2f} {text_size:.2f}) (thickness {text_thickness:.2f})))
+        (format (units 2) (units_format 1) (precision 2))
+        (style
+            (thickness {text_thickness:0.2f})
+            (arrow_length 1.27)
+            (text_position_mode 0)
+            (extension_height 0.58642)
+            (extension_offset 0)
+            keep_text_aligned
         )
-        (feature1 (pts (xy {x2:.2f} {y2:.2f}) (xy {x2 + crossbar_offset:.2f} {y2:.2f})))
-        (feature2 (pts (xy {x1:.2f} {y1:.2f}) (xy {x1 + crossbar_offset:.2f} {y1:.2f})))
-        (crossbar (pts (xy {x1 + crossbar_offset:.2f} {y1:.2f}) (xy {x2 + crossbar_offset:.2f} {y2:.2f})))
-        (arrow1a (pts (xy {x2 + crossbar_offset:.2f} {y2:.2f}) (xy {x2 + crossbar_offset - arrow_span:.2f} {y2 - arrow_length:.2f})))
-        (arrow1b (pts (xy {x2 + crossbar_offset:.2f} {y2:.2f}) (xy {x2 + crossbar_offset + arrow_span:.2f} {y2 - arrow_length:.2f})))
-        (arrow2a (pts (xy {x1 + crossbar_offset:.2f} {y1:.2f}) (xy {x1 + crossbar_offset - arrow_span:.2f} {y1 + arrow_length:.2f})))
-        (arrow2b (pts (xy {x1 + crossbar_offset:.2f} {y1:.2f}) (xy {x1 + crossbar_offset + arrow_span:.2f} {y1 + arrow_length:.2f})))
     )
     """
 
 
 def _slotted_hole_template(x, y, hole_size, slot_size):
     return f"""
-    (module Drill:SlottedHole (layer F.Cu) (tedit 5E5DD340)
+    (footprint "Drill:SlottedHole" (layer "F.Cu")
+        (tedit 5E5DD340) (tstamp c95cceac-2fea-43fe-8192-7e6abff6f933)
         (at {x:.2f} {y:.2f})
         (descr "Drill {hole_size:.1f} mm, slotted")
-        (tags "")
-        (attr virtual)
-        (pad "" np_thru_hole roundrect (at 0 0) (size {slot_size:.2f} {hole_size:.2f}) (drill oval {slot_size:.2f} {hole_size:.1f}) (layers *.Cu *.Mask) (roundrect_rratio 0.5) (clearance 0.1) (zone_connect 0))
+        (attr exclude_from_pos_files exclude_from_bom)
+        (pad "" np_thru_hole roundrect locked
+            (at 0 0)
+            (size {slot_size:.2f} {hole_size:.2f})
+            (drill oval {slot_size:.2f} {hole_size:.1f})
+            (layers *.Cu *.Mask)
+            (roundrect_rratio 0.5)
+            (clearance 0.1)
+            (zone_connect 0)
+            (tstamp b2aa81b7-537d-4634-9f80-971e9b57325b)
+        )
     )
 """
