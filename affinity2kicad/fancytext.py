@@ -435,8 +435,6 @@ def main():
         else:
             args.layer = "F.SilkS"
 
-    arg_str = " ".join([shlex.quote(x) for x in sys.argv[1:]])
-
     mod_text = generate(
         text=args.text,
         layer=args.layer,
@@ -449,7 +447,6 @@ def main():
         line_spacing=args.line_spacing,
         dpi=args.dpi,
         style=style,
-        comment=arg_str,
     )
 
     pyperclip.copy(mod_text)

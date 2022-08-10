@@ -118,11 +118,16 @@ class PCB:
             )
         )
 
-    def add_mod(self, filename, x, y, orientation=0, relative=True):
+    def add_mod(self, filename_or_text, x, y, orientation=0, relative=True):
         if relative:
             x += self.offset[0]
             y += self.offset[1]
-        mod = open(filename, "r").read()
+
+        if filename_or_text.startswith("(footprint"):
+            mod = filename_or_text
+        else:
+            mod = open(filename_or_text, "r").read()
+
         mod = mod.replace("(at 0 0)", f"(at {x:.2f} {y:.2f} {orientation})", 1)
         self.text.write(mod)
 
