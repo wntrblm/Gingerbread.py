@@ -11,6 +11,7 @@ import sys
 import shutil
 import tempfile
 import atexit
+from turtle import width
 
 import cairocffi
 from rich import print
@@ -156,10 +157,10 @@ class BoxStyle:
             )
         if self.right == ">":
             rects.append(
-                f'<rect x="{center}" y="{self.y}" width="{slice_w}" height="{self.height}" />'
+                f'<rect x="{center}" y="{self.y}" width="{slice_w - pad1}" height="{self.height}" />'
             )
             rects.append(
-                f'<rect x="0" y="0" width="{hyp}" height="{hyp}" transform="translate({self.x + self.width}, {self.y}) rotate(45)" />'
+                f'<rect x="0" y="0" width="{hyp}" height="{hyp}" transform="translate({self.x + self.width - pad1}, {self.y}) rotate(45)" />'
             )
 
         return "\n".join(rects)
@@ -208,7 +209,7 @@ class _Text:
         align="center",
         flip=False,
         fill="black",
-        stroke="white",
+        stroke="black",
         stroke_width=0,
     ):
         self.text = text
