@@ -16,5 +16,6 @@ requires = [
     "cssselect2",
     "pyperclip",
     "numpy",
-    "pyvips"
+    "pyvips",
+    "gdstk",
 ]
