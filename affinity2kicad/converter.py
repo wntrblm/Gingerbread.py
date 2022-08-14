@@ -10,6 +10,7 @@ import rich
 import rich.live
 import rich.text
 
+from . import trace
 from .bitmap2component import bitmap2component
 
 console = rich.get_console()
@@ -206,9 +207,7 @@ class Converter:
                     layer_name, mod, cached = result
 
                     if mod:
-                        self.pcb.add_mod(
-                            mod, self.centroid[0], self.centroid[1], relative=False
-                        )
+                        self.pcb.add_mod(mod, 0, 0)
                         if cached:
                             results[layer_name] = "[blue]cached[/blue]"
                         else:
@@ -254,13 +253,14 @@ def convert_layer(doc, tmpdir, src_layer_name, dst_layer_name):
         fh.write(svg_text)
 
     doc.render(png_filename)
-    bitmap2component(
-        src=png_filename,
-        dst=mod_filename,
-        layer=dst_layer_name,
-        invert=True,
-        dpi=doc.dpi,
-    )
+
+    image = trace.load_image(png_filename)
+    bitmap = trace.prepare_image(image, invert=False, threshold=127)
+    polys = trace.trace_to_polys(bitmap)
+    fp = trace.generate_footprint(polys=polys, dpi=doc.dpi, layer=dst_layer_name)
+
+    with open(mod_filename, "w") as fh:
+        fh.write(fp)
 
     return src_layer_name, mod_filename, False
 
