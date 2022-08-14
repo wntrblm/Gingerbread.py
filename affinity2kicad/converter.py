@@ -11,7 +11,6 @@ import rich.live
 import rich.text
 
 from . import trace
-from .bitmap2component import bitmap2component
 
 console = rich.get_console()
 
