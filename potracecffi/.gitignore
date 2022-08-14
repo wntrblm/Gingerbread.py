@@ -1,0 +1,5 @@
+*.o
+*_potracecffi*
+*.so
+*.dylib
+*.a

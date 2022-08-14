@@ -15,4 +15,6 @@ requires = [
     "defusedxml",
     "cssselect2",
     "pyperclip",
+    "numpy",
+    "pyvips"
 ]

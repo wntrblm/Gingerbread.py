@@ -1,8 +1,14 @@
+# Copyright (c) 2022 Alethea Katherine Flowers.
+# Published under the standard MIT License.
+# Full text available at: https://opensource.org/licenses/MIT
+
 # https://gitlab.com/kicad/code/kicad/-/blob/master/bitmap2component/bitmap2component.cpp
 # https://gitlab.com/kicad/code/kicad/-/blob/master/libs/kimath/include/geometry/shape_poly_set.h
 # https://gitlab.com/kicad/code/kicad/-/blob/master/libs/kimath/src/geometry/shape_poly_set.cpp
 # https://heitzmann.github.io/gdstk/geometry/gdstk.Polygon.html#gdstk.Polygon
 # http://potrace.sourceforge.net/potracelib.pdf
+# https://www.libvips.org/API/current/
+
 
 import argparse
 import io
@@ -13,10 +19,9 @@ import uuid
 
 import gdstk
 import numpy as np
-import PIL.Image
-import PIL.ImageOps
-import potrace
+import potracecffi
 import svgpathtools
+import pyvips
 from rich import print
 
 
@@ -31,17 +36,17 @@ def bezier_to_points(seg, points=5):
 
 
 def path_to_poly_pts(path):
-    pts = [path.start_point]
-    for segment in path:
-        if isinstance(segment, potrace.CornerSegment):
-            pts.append(segment.c)
-            pts.append(segment.end_point)
-        elif isinstance(segment, potrace.BezierSegment):
+    pts = [potracecffi.curve_start_point(path.curve)]
+    for segment in potracecffi.iter_curve(path.curve):
+        if segment.tag == potracecffi.CORNER:
+            pts.append(segment.c1)
+            pts.append(segment.c2)
+        elif segment.tag == potracecffi.CURVETO:
             b = svgpathtools.CubicBezier(
                 complex(*pts[-1]),
+                complex(*segment.c0),
                 complex(*segment.c1),
                 complex(*segment.c2),
-                complex(*segment.end_point),
             )
             for pt in bezier_to_points(b):
                 pts.append((pt.real, pt.imag))
@@ -50,33 +55,37 @@ def path_to_poly_pts(path):
 
 def load_image(path):
     printe(f"Loading {path}")
-    PIL.Image.MAX_IMAGE_PIXELS = 2**28
-    image = PIL.Image.open(path)
+    image = pyvips.Image.new_from_file(path)
     return image
 
 
-def image_to_potrace_bitmap(
-    image: PIL.Image, invert: bool = False, threshold: int = 127
-) -> potrace.Bitmap:
+def prepare_image(
+    image: pyvips.Image, invert: bool = False, threshold: int = 127
+) -> np.array:
+    printe(f"Image size: {image.width} x {image.height}")
     printe("Converting to black & white")
-    image = PIL.ImageOps.grayscale(image)
-    image_array = np.array(image)
-    image_array = np.vectorize(lambda x: (not invert) if x < threshold else invert)(
-        image_array
-    )
-    printe("Loading bitmap into potrace")
-    return potrace.Bitmap(image_array)
+
+    if image.hasalpha():
+        image = image.flatten()
+
+    image = image.colourspace("b-w")
+    image_array = image.numpy()
+
+    printe(f"Applying {threshold=}")
+    image_array = np.where(image_array > threshold, invert, not invert)
+
+    return image_array
 
 
-def trace_to_polys(bitmap: potrace.Bitmap) -> list:
-    printe("Tracing...")
-    paths = bitmap.trace(turdsize=0)
-    printe(f"Traced {len(paths)} paths")
+def trace_to_polys(bitmap: np.array) -> list:
+    printe("Tracing")
+    trace_result = potracecffi.trace(bitmap, turdsize=0)
 
+    printe("Converting paths to polygons")
     polys = []
 
-    for path in paths:
-        pts = path_to_poly_pts(path.curves[0])
+    for path in potracecffi.iter_paths(trace_result):
+        pts = path_to_poly_pts(path)
         hole = path.sign == ord("-")
 
         if not hole:
@@ -89,17 +98,17 @@ def trace_to_polys(bitmap: potrace.Bitmap) -> list:
             # printe(f"Hole {hole.size} {hole=} {result=}")
             polys.extend(result)
 
-    printe(f"Generated {len(polys)} polygons")
+    printe(f"Converted to {len(polys)} polygons")
 
     return polys
 
 
-def generate_poly(poly: list[list[int, int]], layer: str, dpmm: float) -> str:
-    output = io.StringIO()
-
+def generate_poly(poly: list[list[int, int]], layer: str, dpmm: float, output) -> str:
     print("  (fp_poly\n    (pts ", file=output)
+
     for pt in poly.points:
         print(f"      (xy {pt[0] * dpmm} {pt[1] * dpmm})", file=output)
+
     print(
         f"     )\n"
         f'    (layer "{layer}")\n'
@@ -110,10 +119,9 @@ def generate_poly(poly: list[list[int, int]], layer: str, dpmm: float) -> str:
         file=output,
     )
 
-    return output.getvalue()
-
 
 def generate_footprint(polys: list, dpi: float = 2540, layer: str = "F.SilkS") -> str:
+    printe(f"Generating footprint, {dpi=}")
     dpmm = 25.4 / dpi
     output = io.StringIO()
 
@@ -128,7 +136,7 @@ def generate_footprint(polys: list, dpi: float = 2540, layer: str = "F.SilkS") -
     )
 
     for poly in polys:
-        print(generate_poly(poly, layer=layer, dpmm=dpmm), file=output)
+        generate_poly(poly, layer=layer, dpmm=dpmm, output=output)
 
     print(")", file=output)
 
@@ -161,9 +169,7 @@ def main():
     args = parser.parse_args()
 
     image = load_image(args.image)
-    bitmap = image_to_potrace_bitmap(
-        image, invert=args.invert, threshold=args.threshold
-    )
+    bitmap = prepare_image(image, invert=args.invert, threshold=args.threshold)
     polys = trace_to_polys(bitmap)
     fp = generate_footprint(polys=polys, dpi=args.dpi, layer=args.layer)
 
