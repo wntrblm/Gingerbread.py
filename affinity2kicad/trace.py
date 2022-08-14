@@ -92,7 +92,7 @@ def prepare_image(
     printe("Converting to black & white")
 
     if image.hasalpha():
-        image = image.flatten()
+        image = image.flatten(background=[255, 255, 255])
 
     image = image.colourspace("b-w")
     image_array = image.numpy()
@@ -116,12 +116,10 @@ def trace_to_polys(bitmap: np.array) -> list:
 
         if not hole:
             p = gdstk.Polygon(list(pts))
-            # printe(f"Poly {p.size} {p=}")
             polys.append(p)
         else:
             hole = gdstk.Polygon(list(pts))
             result = gdstk.boolean(polys.pop(), hole, "not")
-            # printe(f"Hole {hole.size} {hole=} {result=}")
             polys.extend(result)
 
     printe(f"Converted to {len(polys)} polygons")
@@ -130,19 +128,19 @@ def trace_to_polys(bitmap: np.array) -> list:
 
 
 def generate_poly(poly: list[list[int, int]], layer: str, dpmm: float, output) -> str:
-    print("  (fp_poly\n    (pts ", file=output)
+    output.write("  (fp_poly\n")
+    output.write("    (pts \n")
 
     for pt in poly.points:
-        print(f"      (xy {pt[0] * dpmm} {pt[1] * dpmm})", file=output)
+        output.write(f"      (xy {pt[0] * dpmm} {pt[1] * dpmm})\n")
 
-    print(
+    output.write(
         f"     )\n"
         f'    (layer "{layer}")\n'
         f"    (fill solid)\n"
         f"    (width 0)\n"
         f'    (tstamp "{uuid.uuid4()}")\n'
         f"  )\n",
-        file=output,
     )
 
 
@@ -151,20 +149,19 @@ def generate_footprint(polys: list, dpi: float = 2540, layer: str = "F.SilkS") -
     dpmm = 25.4 / dpi
     output = io.StringIO()
 
-    print(
-        f'(footprint "TEST"'
-        f"  (version 20220101)"
-        f'  (generator "affinity2kicad")'
-        f'  (layer "F.SilkS")'
-        f'  (tedit "{uuid.uuid1()}")'
-        f"  (at 0 0)",
-        file=output,
+    output.write(
+        f'(footprint "Graphics"\n'
+        f"  (version 20220101)\n"
+        f'  (generator "affinity2kicad")\n'
+        f'  (layer "{layer}")\n'
+        f'  (tedit "{uuid.uuid1()}")\n'
+        f"  (at 0 0)\n",
     )
 
     for poly in polys:
         generate_poly(poly, layer=layer, dpmm=dpmm, output=output)
 
-    print(")", file=output)
+    output.write(")")
 
     return output.getvalue()
 
