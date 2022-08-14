@@ -13,7 +13,7 @@ import atexit
 import cairocffi
 from rich import print
 
-from .bitmap2component import bitmap2component
+from . import trace
 from .document import SVGDocument
 
 
@@ -343,7 +343,6 @@ def generate(
     padding=[2, 2],
     dpi=2540,
     style=Style(),
-    comment="",
     **kwargs,
 ):
     flip = layer.startswith("B.")
@@ -352,7 +351,6 @@ def generate(
     atexit.register(lambda path: shutil.rmtree(path), workdir)
 
     png_path = os.path.join(workdir, "fancytext.png")
-    mod_path = os.path.join(workdir, "fancytext.kicad_mod")
 
     svg = SVGDocument(
         text=_generate_svg(
@@ -366,23 +364,12 @@ def generate(
 
     svg.render(png_path)
 
-    bitmap2component(src=png_path, dst=mod_path, layer=layer, invert=True, dpi=dpi)
+    image = trace.load_image(png_path)
+    bitmap = trace.prepare_image(image, invert=False, threshold=127)
+    polys = trace.trace_to_polys(bitmap, center=True)
+    fp = trace.generate_footprint(polys=polys, dpi=dpi, layer=layer)
 
-    with open(mod_path, "r") as fh:
-        mod_text = fh.read()
-
-    mod_text = mod_text.replace(
-        "(module LOGO ",
-        (
-            '(footprint "LOGO" (version 20211014) (generator pcbnew) '
-            "(attr board_only exclude_from_pos_files exclude_from_bom) "
-            f'(fp_text user "{comment}" (at 0 0 unlocked) (layer "F.Fab") hide '
-            "    (effects (font (size 0.7 0.7) (thickness 0.15)))"
-            "    (tstamp 5fc858c7-d6ee-480d-8735-c54b7e2ea66a))"
-        ),
-    )
-
-    return mod_text
+    return fp
 
 
 def main():

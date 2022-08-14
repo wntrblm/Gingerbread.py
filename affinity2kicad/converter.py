@@ -255,7 +255,7 @@ def convert_layer(doc, tmpdir, src_layer_name, dst_layer_name):
 
     image = trace.load_image(png_filename)
     bitmap = trace.prepare_image(image, invert=False, threshold=127)
-    polys = trace.trace_to_polys(bitmap)
+    polys = trace.trace_to_polys(bitmap, center=False)
     fp = trace.generate_footprint(polys=polys, dpi=doc.dpi, layer=dst_layer_name)
 
     with open(mod_filename, "w") as fh:
