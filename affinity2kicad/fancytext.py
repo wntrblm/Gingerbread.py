@@ -3,19 +3,20 @@
 # Full text available at: https://opensource.org/licenses/MIT
 
 import argparse
+import atexit
 import contextlib
-from math import sqrt
 import os.path
 import shutil
+import sys
 import tempfile
-import atexit
+from math import sqrt
 
 import cairocffi
-from rich import print
+import rich
 
 from . import trace
+from ._print import printv, set_verbose
 from .document import SVGDocument
-
 
 _ALIGN = {
     "left": "start",
@@ -63,8 +64,11 @@ class Style:
     def toxml_after(self):
         return ""
 
+    def __repr__(self) -> str:
+        return self.__class__.__name__
 
-class BoxStyle:
+
+class BoxStyle(Style):
     def __init__(self, padding=[50, 50], left="(", right=")"):
         self.padding = padding
         self.left = left
@@ -242,7 +246,17 @@ class _Text:
         ) = _get_font_extents(
             font=self.font, size=self.size, bold=self.bold, italic=self.italic
         )
-        # print(f"{font_ascent=}, {font_descent=}, {font_height=}, {font_max_y_advance=}")
+        printv(
+            f"Font metrics:\n"
+            f"- {self.font=}\n"
+            f"- {self.size=}\n"
+            f"- {self.bold=}\n"
+            f"- {self.italic=}\n"
+            f"- {font_ascent=}\n"
+            f"- {font_descent=}\n"
+            f"- {font_height=}\n"
+            f"- {font_max_y_advance=}"
+        )
 
         for n, line in enumerate(lines):
             (_, y_bearing, line_w, line_h, _, _) = _get_text_extents(
@@ -270,6 +284,14 @@ class _Text:
         self.y_bearing_px = total_y_bearing * self.mmpx
         self.x_px = 0
         self.y_px = 0
+
+        printv(
+            f"Text extents:\n"
+            f"- {self.size_px=}\n"
+            f"- {self.width_px=}\n"
+            f"- {self.height_px=}\n"
+            f"- {self.y_bearing_px=}"
+        )
 
     def _combine_transforms(self):
         transforms = []
@@ -352,6 +374,7 @@ def generate(
 
     png_path = os.path.join(workdir, "fancytext.png")
 
+    printv(f"Generating SVG {padding=} {dpi=} {style=} {flip=}")
     svg = SVGDocument(
         text=_generate_svg(
             text=text, flip=flip, padding=padding, dpi=dpi, style=style, **kwargs
@@ -362,12 +385,13 @@ def generate(
     with open(os.path.join(workdir, "fancytext.svg"), "w") as fh:
         fh.write(svg.tostring())
 
+    printv("Rendering SVG")
     svg.render(png_path)
 
-    image = trace.load_image(png_path)
-    bitmap = trace.prepare_image(image, invert=False, threshold=127)
-    polys = trace.trace_to_polys(bitmap, center=True)
-    fp = trace.generate_footprint(polys=polys, dpi=dpi, layer=layer)
+    printv("Tracing image")
+    fp = trace.trace(
+        png_path, invert=False, threshold=127, dpi=dpi, layer=layer, center=True
+    )
 
     return fp
 
@@ -377,6 +401,7 @@ def main():
 
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--font", default="Space Mono")
     parser.add_argument("--bold", action=argparse.BooleanOptionalAction)
     parser.add_argument("--italic", action=argparse.BooleanOptionalAction)
@@ -395,7 +420,8 @@ def main():
     parser.add_argument("text")
 
     args = parser.parse_args()
-    print(args)
+
+    set_verbose(args.verbose)
 
     style = Style()
 
@@ -436,7 +462,7 @@ def main():
 
     pyperclip.copy(mod_text)
 
-    print("Copied to clipboard!")
+    rich.print("[green]Copied to clipboard! :purple_heart:", file=sys.stderr)
 
 
 if __name__ == "__main__":

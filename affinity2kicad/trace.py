@@ -22,15 +22,13 @@ import gdstk
 import numpy as np
 import potracecffi
 import pyvips
-from rich import print
+import rich
 
-
-def printe(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+from ._print import set_verbose, printv
 
 
 # Ported from https://gitlab.com/kicad/code/kicad/-/blob/2ee65b2d83923acb71aa77ce0efab09a3f2a8f44/bitmap2component/bitmap2component.cpp#L544
-def bezier_to_points(p1, p2, p3, p4, delta=0.25):
+def _bezier_to_points(p1, p2, p3, p4, delta=0.25):
     # Approximate the curve by small line segments. The interval
     # size, epsilon, is determined on the fly so that the distance
     # between the true curve and its approximation does not exceed the
@@ -65,7 +63,7 @@ def bezier_to_points(p1, p2, p3, p4, delta=0.25):
     yield p4
 
 
-def path_to_poly_pts(path) -> Generator[tuple[float, float], None, None]:
+def _path_to_poly_pts(path) -> Generator[tuple[float, float], None, None]:
     last = potracecffi.curve_start_point(path.curve)
     yield last
 
@@ -74,22 +72,22 @@ def path_to_poly_pts(path) -> Generator[tuple[float, float], None, None]:
             yield segment.c1
             yield segment.c2
         elif segment.tag == potracecffi.CURVETO:
-            yield from bezier_to_points(last, segment.c0, segment.c1, segment.c2)
+            yield from _bezier_to_points(last, segment.c0, segment.c1, segment.c2)
 
         last = segment.c2
 
 
-def load_image(path):
-    printe(f"Loading {path}")
+def _load_image(path) -> pyvips.Image:
+    printv(f"Loading {path}")
     image = pyvips.Image.new_from_file(path)
     return image
 
 
-def prepare_image(
+def _prepare_image(
     image: pyvips.Image, invert: bool = False, threshold: int = 127
 ) -> np.array:
-    printe(f"Image size: {image.width} x {image.height}")
-    printe("Converting to black & white")
+    printv(f"Image size: {image.width} x {image.height}")
+    printv("Converting to black & white")
 
     if image.hasalpha():
         image = image.flatten(background=[255, 255, 255])
@@ -97,17 +95,19 @@ def prepare_image(
     image = image.colourspace("b-w")
     image_array = image.numpy()
 
-    printe(f"Applying {threshold=}")
+    printv(f"Applying {threshold=}")
     image_array = np.where(image_array > threshold, invert, not invert)
 
     return image_array
 
 
-def trace_to_polys(bitmap: np.array, center: bool = True) -> list:
-    printe("Tracing")
+def _trace_bitmap_to_polys(
+    bitmap: np.array, center: bool = True
+) -> list[gdstk.Polygon]:
+    printv("Tracing")
     trace_result = potracecffi.trace(bitmap, turdsize=0)
 
-    printe("Converting paths to polygons")
+    printv("Converting paths to polygons")
 
     if center:
         offset = (-bitmap.shape[1] / 2, -bitmap.shape[0] / 2)
@@ -117,7 +117,7 @@ def trace_to_polys(bitmap: np.array, center: bool = True) -> list:
     polys = []
 
     for path in potracecffi.iter_paths(trace_result):
-        pts = [(p[0] + offset[0], p[1] + offset[1]) for p in path_to_poly_pts(path)]
+        pts = [(p[0] + offset[0], p[1] + offset[1]) for p in _path_to_poly_pts(path)]
         hole = path.sign == ord("-")
 
         if not hole:
@@ -128,12 +128,14 @@ def trace_to_polys(bitmap: np.array, center: bool = True) -> list:
             result = gdstk.boolean(polys.pop(), hole, "not")
             polys.extend(result)
 
-    printe(f"Converted to {len(polys)} polygons")
+    printv(f"Converted to {len(polys)} polygons")
 
     return polys
 
 
-def generate_poly(poly: list[list[int, int]], layer: str, dpmm: float, output) -> str:
+def _generate_fp_poly(
+    poly: list[gdstk.Polygon], *, layer: str, dpmm: float, output
+) -> str:
     output.write("  (fp_poly\n")
     output.write("    (pts \n")
 
@@ -150,8 +152,8 @@ def generate_poly(poly: list[list[int, int]], layer: str, dpmm: float, output) -
     )
 
 
-def generate_footprint(polys: list, dpi: float = 2540, layer: str = "F.SilkS") -> str:
-    printe(f"Generating footprint, {dpi=}")
+def generate_footprint(polys: list[gdstk.Polygon], *, dpi: float, layer: str) -> str:
+    printv(f"Generating footprint, {dpi=}")
     dpmm = 25.4 / dpi
     output = io.StringIO()
 
@@ -165,11 +167,27 @@ def generate_footprint(polys: list, dpi: float = 2540, layer: str = "F.SilkS") -
     )
 
     for poly in polys:
-        generate_poly(poly, layer=layer, dpmm=dpmm, output=output)
+        _generate_fp_poly(poly, layer=layer, dpmm=dpmm, output=output)
 
     output.write(")")
 
     return output.getvalue()
+
+
+def trace(
+    image_path: pathlib.Path,
+    *,
+    invert: bool = False,
+    threshold: int = 127,
+    dpi: float = 2540,
+    layer: str = "F.SilkS",
+    center: bool = True,
+):
+    image = _load_image(image_path)
+    bitmap = _prepare_image(image, invert=invert, threshold=threshold)
+    polys = _trace_bitmap_to_polys(bitmap, center=center)
+    fp = generate_footprint(polys=polys, dpi=dpi, layer=layer)
+    return fp
 
 
 def main():
@@ -177,6 +195,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("image", type=pathlib.Path)
+    parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--dpi", type=float, default=2540)
     parser.add_argument("--invert", action="store_true")
     parser.add_argument("--threshold", type=int, default=127)
@@ -197,14 +216,19 @@ def main():
 
     args = parser.parse_args()
 
-    image = load_image(args.image)
-    bitmap = prepare_image(image, invert=args.invert, threshold=args.threshold)
-    polys = trace_to_polys(bitmap)
-    fp = generate_footprint(polys=polys, dpi=args.dpi, layer=args.layer)
+    set_verbose(args.verbose)
+
+    fp = trace(
+        args.image,
+        invert=args.invert,
+        threshold=args.threshold,
+        dpi=args.dpi,
+        layer=args.layer,
+    )
 
     pyperclip.copy(fp)
 
-    print("[green]Copied to clipboard!")
+    rich.print("[green]Copied to clipboard! :purple_heart:", file=sys.stderr)
 
 
 if __name__ == "__main__":
