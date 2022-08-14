@@ -6,12 +6,9 @@ import argparse
 import contextlib
 from math import sqrt
 import os.path
-import shlex
-import sys
 import shutil
 import tempfile
 import atexit
-from turtle import width
 
 import cairocffi
 from rich import print
