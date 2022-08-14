@@ -103,15 +103,21 @@ def prepare_image(
     return image_array
 
 
-def trace_to_polys(bitmap: np.array) -> list:
+def trace_to_polys(bitmap: np.array, center: bool = True) -> list:
     printe("Tracing")
     trace_result = potracecffi.trace(bitmap, turdsize=0)
 
     printe("Converting paths to polygons")
+
+    if center:
+        offset = (-bitmap.shape[1] / 2, -bitmap.shape[0] / 2)
+    else:
+        offset = (0, 0)
+
     polys = []
 
     for path in potracecffi.iter_paths(trace_result):
-        pts = path_to_poly_pts(path)
+        pts = [(p[0] + offset[0], p[1] + offset[1]) for p in path_to_poly_pts(path)]
         hole = path.sign == ord("-")
 
         if not hole:
