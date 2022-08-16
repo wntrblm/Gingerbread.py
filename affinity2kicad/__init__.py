@@ -4,16 +4,16 @@
 
 """Winterbloom's tooling for converting Affinity Designer SVG files to KiCAD PCB files."""
 
-from .converter import Converter
-from .document import SVGDocument
-from .pcbnew import PCB
 from . import helpers
 
 __version__ = "0.0.0.dev0"
-__all__ = ["Converter", "helpers", "SVGDocument", "PCB"]
-
+__all__ = ["convert", "helpers"]
 
 def convert(*, source, title, rev):
+    from .converter import Converter
+    from .document import SVGDocument
+    from .pcbnew import PCB
+
     doc = SVGDocument(source)
     pcb = PCB(title=title, rev=rev)
 
