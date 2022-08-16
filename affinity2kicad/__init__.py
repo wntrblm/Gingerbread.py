@@ -7,11 +7,10 @@
 from .converter import Converter
 from .document import SVGDocument
 from .pcbnew import PCB
-from . import fancytext
 from . import helpers
 
 __version__ = "0.0.0.dev0"
-__all__ = ["Converter", "helpers", "SVGDocument", "PCB", "fancytext"]
+__all__ = ["Converter", "helpers", "SVGDocument", "PCB"]
 
 
 def convert(*, source, title, rev):
