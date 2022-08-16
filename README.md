@@ -93,6 +93,10 @@ Which ends up looking like this:
 ![Winterbloom style fancy text](readme_resources/fancytext-6.png)
 
 
+## Using Trace
+
+TODO
+
 ## Similar projects
 
 Projects similar to Affinity2KiCAD:
