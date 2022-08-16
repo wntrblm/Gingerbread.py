@@ -131,8 +131,14 @@ def _trace_bitmap_to_polys(
             p = gdstk.Polygon(list(pts))
             polys.append(p)
         else:
-            hole = gdstk.Polygon(list(pts))
-            result = gdstk.boolean(polys.pop(), hole, "not")
+            hole_poly = gdstk.Polygon(list(pts))
+            result = gdstk.boolean(polys.pop(), hole_poly, "not")
+
+            # if gdstk produced multiple polygons, stitch them back together
+            while len(result) > 1:
+                new_result = gdstk.boolean(result[0], result[1], "or")
+                result = new_result + result[2:]
+
             polys.extend(result)
 
     printv(f"Converted to {len(polys)} polygons")
