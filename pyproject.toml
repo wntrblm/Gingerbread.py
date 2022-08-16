@@ -10,6 +10,10 @@ home-page = "https://github.com/wntrblm/affinity2kicad"
 classifiers = ["License :: OSI Approved :: MIT License"]
 requires = [
     "cairosvg",
+    "cairocffi",
+    "pangocffi",
+    "pangocairocffi",
+    "potracecffi",
     "svgpathtools",
     "rich",
     "defusedxml",
