@@ -22,7 +22,11 @@ You'll need [homebrew](https://brew.sh) and a few dependencies:
 brew install cairo pango pangocairo potrace
 ```
 
-You'll also need Python 3.10 or later.
+You'll also need Python 3.10 or later. Install using `pip`:
+
+```sh
+python3 -m pip install affinity2kicad
+```
 
 ## Using Affinity2KiCAD
 
