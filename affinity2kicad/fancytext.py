@@ -16,6 +16,7 @@
 
 import argparse
 import atexit
+from cmath import sqrt
 import html
 import math
 import os
@@ -197,10 +198,10 @@ class Outline:
         self.padding_mm = padding_mm
 
     def preprocess(self, text: str):
-        if text.startswith(("[", "(", "<", "/", "\\")):
+        if text.startswith(("|", "[", "(", "<", "/", "\\")):
             self.left = text[0]
             text = text[1:]
-        if text.endswith(("]", ")", ">", "/", "\\")):
+        if text.endswith(("|", "]", ")", ">", "/", "\\")):
             self.right = text[-1]
             text = text[0:-1]
         return text
@@ -209,80 +210,94 @@ class Outline:
         t_x, t_y, t_w, t_h = text.absolute_extents_px(context)
         pad_x = self.padding_mm[0] * text.dpmm
         pad_y = self.padding_mm[1] * text.dpmm
-        x = t_x - pad_x / 2
+        pad_x_h = pad_x / 2
+        x = t_x - pad_x_h
         y = t_y - pad_y / 2
         w = t_w + pad_x
         h = t_h + pad_y
+        h_hyp = h / sqrt(2).real
         stroke_width_px = self.stroke_width_mm * text.dpmm
 
         context.save()
         context.translate(x, y)
 
         match self.left:
-            case "[":
+            case "|":
                 context.move_to(0, 0)
                 context.line_to(0, h)
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
                 context.line_to(0, 0)
+            case "[":
+                context.move_to(-h_hyp / 2, 0)
+                context.line_to(-h_hyp / 2, h)
+                context.line_to(w / 2, h)
+                context.line_to(w / 2, 0)
+                context.line_to(-h_hyp / 2, 0)
             case "/":
                 context.move_to(0, 0)
-                context.line_to(-pad_x, h)
+                context.line_to(-h_hyp, h)
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
                 context.line_to(0, 0)
             case "\\":
-                context.move_to(-pad_x, 0)
+                context.move_to(-h_hyp, 0)
                 context.line_to(0, h)
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
-                context.line_to(-pad_x, 0)
+                context.line_to(-h_hyp, 0)
             case "<":
                 context.move_to(0, 0)
-                context.line_to(-pad_x, h / 2)
+                context.line_to(-h_hyp, h / 2)
                 context.line_to(0, h)
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
                 context.line_to(0, 0)
             case "(":
-                context.move_to(0 + pad_x / 2, h)
+                context.move_to(0, h)
                 context.arc(
-                    0 + pad_x / 2, h / 2, h / 2, math.radians(90), math.radians(270)
+                    0, h / 2, h / 2, math.radians(90), math.radians(270)
                 )
                 context.line_to(w / 2, 0)
                 context.line_to(w / 2, h)
-                context.line_to(0 + pad_x / 2, h)
+                context.line_to(0, h)
 
         match self.right:
-            case "]":
+            case "|":
                 context.move_to(w / 2, 0)
                 context.line_to(w / 2, h)
                 context.line_to(w, h)
                 context.line_to(w, 0)
                 context.line_to(w / 2, 0)
+            case "]":
+                context.move_to(w / 2, 0)
+                context.line_to(w / 2, h)
+                context.line_to(w + h_hyp / 2, h)
+                context.line_to(w + h_hyp / 2, 0)
+                context.line_to(w / 2, 0)
             case "/":
                 context.move_to(w / 2, 0)
                 context.line_to(w / 2, h)
                 context.line_to(w, h)
-                context.line_to(w + pad_x, 0)
+                context.line_to(w + h_hyp, 0)
                 context.line_to(w / 2, 0)
             case "\\":
                 context.move_to(w / 2, 0)
                 context.line_to(w / 2, h)
-                context.line_to(w + pad_x, h)
+                context.line_to(w + h_hyp, h)
                 context.line_to(w, 0)
                 context.line_to(w / 2, 0)
             case ">":
                 context.move_to(w / 2, 0)
                 context.line_to(w / 2, h)
                 context.line_to(w, h)
-                context.line_to(w + pad_x, h / 2)
+                context.line_to(w + h_hyp, h / 2)
                 context.line_to(w, 0)
                 context.line_to(w / 2, 0)
             case ")":
-                context.move_to(w / 2 - pad_x / 2, 0)
+                context.move_to(w / 2, 0)
                 context.arc(
-                    w - pad_x / 2, h / 2, h / 2, math.radians(-90), math.radians(90)
+                    w, h / 2, h / 2, math.radians(-90), math.radians(90)
                 )
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
