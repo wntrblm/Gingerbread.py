@@ -2,81 +2,199 @@
 # Published under the standard MIT License.
 # Full text available at: https://opensource.org/licenses/MIT
 
+"""Fancytext generates beautiful text labels for KiCAD"""
+
+# References:
+# - https://github.com/leifgehrmann/pangocffi/tree/master/tests/functional
+# - https://pangocairocffi.readthedocs.io/en/latest/tests.html
+# - https://pangocairocffi.readthedocs.io/en/latest/
+# - https://pangocffi.readthedocs.io/en/latest/modules.html#text-attribute-markup
+# - https://github.com/leifgehrmann/pangocairocffi/blob/master/tests/test_extents.py
+# - https://gitlab.gnome.org/GNOME/librsvg/-/blob/main/src/text.rs#L1219w
+# - https://docs.gtk.org/Pango/
+# - https://gist.github.com/ynkdir/849071
+
 import argparse
 import atexit
-import contextlib
-import os.path
+import html
+import math
+import os
 import shutil
 import sys
 import tempfile
-from math import sqrt
 
-import cairocffi
 import rich
+import tinycss2.color3
 
 from . import trace
+from ._cffi_deps import cairocffi, pangocairocffi, pangocffi
 from ._print import printv, set_verbose
-from .document import SVGDocument
-
-_ALIGN = {
-    "left": "start",
-    "center": "middle",
-    "right": "end",
-}
+from ._utils import default_param_value
 
 
-@contextlib.contextmanager
-def _temporary_font_context(font, size, bold, italic):
-    surface = cairocffi.RecordingSurface(cairocffi.CONTENT_COLOR_ALPHA, None)
-    context = cairocffi.Context(surface)
+def get_context_size(context: cairocffi.Context) -> tuple[int, int]:
+    target = context.get_target()
+    return (target.get_width(), target.get_height())
 
-    with context:
-        context.select_font_face(
-            font,
-            cairocffi.FONT_SLANT_ITALIC if italic else cairocffi.FONT_SLANT_NORMAL,
-            cairocffi.FONT_WEIGHT_BOLD if bold else cairocffi.FONT_WEIGHT_NORMAL,
+
+class Text:
+    def __init__(
+        self,
+        *,
+        text,
+        font,
+        bold=False,
+        italic=False,
+        strikethrough=False,
+        underline=False,
+        overline=False,
+        size_mm=2,
+        line_spacing=1,
+        align="center",
+        fill="black",
+        stroke="black",
+        stroke_width_mm=0,
+        dpmm=100,
+    ):
+        self.text = text
+        self.size_mm = size_mm
+        self.bold = bold
+        self.italic = italic
+        self.strikethrough = strikethrough
+        self.underline = underline
+        self.overline = overline
+        self.line_spacing = line_spacing
+        self.font = font
+        self.align = align
+        self.fill = tinycss2.color3.parse_color(fill)
+        self.stroke = tinycss2.color3.parse_color(stroke)
+        self.stroke_width_mm = stroke_width_mm
+        self.dpmm = dpmm
+
+        self._init_layout()
+
+    def _markup(self):
+        size_px = self.size_mm * self.dpmm
+        bold = "bold" if self.bold else ""
+        italic = "italic" if self.italic else ""
+        strikethrough = 'strikethrough="true"' if self.strikethrough else ""
+        underline = 'underline="single"' if self.underline else ""
+
+        return (
+            f"<span "
+            f'font="{self.font} {bold} {italic} {size_px}px" '
+            f"{strikethrough} {underline}"
+            f'line_height="{self.line_spacing}">'
+            f"{html.escape(self.text)}"
+            f"</span>"
         )
-        context.set_font_size(size)
 
-        yield context
+    def _init_layout(self):
+        self._surface = cairocffi.RecordingSurface(cairocffi.CONTENT_COLOR_ALPHA, None)
+        self._cairo = cairocffi.Context(self._surface)
+        self._layout = pangocairocffi.create_layout(self._cairo)
+
+        self._layout.set_alignment(getattr(pangocffi.Alignment, self.align.upper()))
+        self._layout.set_width(-1)
+        self._layout.set_markup(self._markup())
+
+        self.baseline_px = pangocffi.units_to_double(self._layout.get_baseline())
+
+        ink, logical = self._layout.get_extents()
+        self.ink_extents_px = [
+            pangocffi.units_to_double(ink.x),
+            pangocffi.units_to_double(ink.y),
+            pangocffi.units_to_double(ink.width),
+            pangocffi.units_to_double(ink.height),
+        ]
+        self.ink_extents_mm = [u / self.dpmm for u in self.ink_extents_px]
+        self.logical_extents_px = [
+            pangocffi.units_to_double(logical.x),
+            pangocffi.units_to_double(logical.y),
+            pangocffi.units_to_double(logical.width),
+            pangocffi.units_to_double(logical.height),
+        ]
+        self.logical_extents_mm = [u / self.dpmm for u in self.logical_extents_px]
+
+    def absolute_extents_px(self, context):
+        surface_w_px, surface_h_px = get_context_size(context)
+        w, h = self.ink_extents_px[2:]
+
+        return (surface_w_px / 2 - w / 2, surface_h_px / 2 - h / 2, w, h)
+
+    def _draw_overbar(self, context: cairocffi.Context):
+        # Pango's default overbar doesn't look great (it's too high up), so
+        # this re-implements to more closely match what KiCAD does.
+
+        # Get the underline thickness info from the font. This is a little involved because
+        # pangocffi doesn't wrap the methods we need.
+        desc = pangocffi.FontDescription()
+        desc.set_family(self.font)
+        desc.set_weight(pangocffi.Weight.BOLD if self.bold else pangocffi.Weight.NORMAL)
+        desc.set_size(pangocffi.units_from_double(self.size_mm * self.dpmm))
+        metrics = pangocffi.pangocffi.pango_context_get_metrics(
+            self._layout.get_context()._pointer, desc._pointer, pangocffi.ffi.NULL
+        )
+        underline_thickness_px = pangocffi.units_to_double(
+            pangocffi.pangocffi.pango_font_metrics_get_underline_thickness(metrics)
+        )
+        pangocffi.pangocffi.pango_font_metrics_unref(metrics)
+
+        # Now that we know the underline thickness, we cna use that to draw the overbar.
+        context.save()
+        context.set_line_width(
+            underline_thickness_px + (self.stroke_width_mm * self.dpmm)
+        )
+        context.new_path()
+        context.move_to(0, 0)
+        context.line_to(self.ink_extents_px[2], 0)
+        context.stroke()
+        context.restore()
+
+    def draw(self, context: cairocffi.Context):
+        context.save()
+
+        x, y, w, h = self.absolute_extents_px(context)
+        printv(f"Ink extents: {x=} {y=} {w=} {h=}")
+        y = y - self.ink_extents_px[1]
+
+        context.translate(x, y)
+
+        pangocairocffi.layout_path(context, self._layout)
+
+        context.set_source_rgba(*self.fill)
+        context.fill_preserve()
+
+        stroke_width_px = self.stroke_width_mm * self.dpmm
+
+        context.set_source_rgba(*self.stroke)
+        context.set_line_width(stroke_width_px)
+        context.set_line_cap(cairocffi.LINE_CAP_ROUND)
+        context.set_line_join(cairocffi.LINE_JOIN_ROUND)
+        context.stroke()
+
+        if self.overline:
+            self._draw_overbar(context)
+
+        context.restore()
 
 
-def _get_font_extents(font, size, bold, italic):
-    with _temporary_font_context(font, size, bold, italic) as context:
-        return context.font_extents()
-
-
-def _get_text_extents(text, font, size, bold, italic):
-    with _temporary_font_context(font, size, bold, italic) as context:
-        return context.text_extents(text)
-
-
-class Style:
-    def preprocess(self, text):
-        return text
-
-    def apply(self, text):
-        pass
-
-    def toxml_before(self):
-        return ""
-
-    def toxml_after(self):
-        return ""
-
-    def __repr__(self) -> str:
-        return self.__class__.__name__
-
-
-class BoxStyle(Style):
-    def __init__(self, padding=[50, 50], left="(", right=")"):
-        self.padding = padding
+class Outline:
+    def __init__(
+        self,
+        left="(",
+        right=")",
+        fill="black",
+        stroke="black",
+        stroke_width_mm=0.1,
+        padding_mm=(1, 1),
+    ):
         self.left = left
         self.right = right
-        self.x = 0
-        self.y = 0
-        self.width = 0
-        self.height = 0
+        self.fill = tinycss2.color3.parse_color(fill)
+        self.stroke = tinycss2.color3.parse_color(stroke)
+        self.stroke_width_mm = stroke_width_mm
+        self.padding_mm = padding_mm
 
     def preprocess(self, text: str):
         if text.startswith(("[", "(", "<", "/", "\\")):
@@ -87,306 +205,174 @@ class BoxStyle(Style):
             text = text[0:-1]
         return text
 
-    def apply(self, text):
-        self.x = -self.padding[0]
-        self.y = -self.padding[0]
-        self.width = text.width_px + self.padding[0] * 2
-        self.height = text.y_bearing_px + self.padding[1] * 2
-        text.fill = "white"
+    def draw(self, context: cairocffi.Context, text: Text):
+        t_x, t_y, t_w, t_h = text.absolute_extents_px(context)
+        pad_x = self.padding_mm[0] * text.dpmm
+        pad_y = self.padding_mm[1] * text.dpmm
+        x = t_x - pad_x / 2
+        y = t_y - pad_y / 2
+        w = t_w + pad_x
+        h = t_h + pad_y
+        stroke_width_px = self.stroke_width_mm * text.dpmm
 
-    def toxml_before(self):
-        rects = []
+        context.save()
+        context.translate(x, y)
 
-        padhalf = self.padding[0] / 2
-        pad1 = self.padding[0]
-        pad2 = self.padding[0] * 2
-        slice_w = self.width / 2
-        center = self.x + (self.width / 2)
-        right = self.x + self.width
+        match self.left:
+            case "[":
+                context.move_to(0, 0)
+                context.line_to(0, h)
+                context.line_to(w / 2, h)
+                context.line_to(w / 2, 0)
+                context.line_to(0, 0)
+            case "/":
+                context.move_to(0, 0)
+                context.line_to(-pad_x, h)
+                context.line_to(w / 2, h)
+                context.line_to(w / 2, 0)
+                context.line_to(0, 0)
+            case "\\":
+                context.move_to(-pad_x, 0)
+                context.line_to(0, h)
+                context.line_to(w / 2, h)
+                context.line_to(w / 2, 0)
+                context.line_to(-pad_x, 0)
+            case "<":
+                context.move_to(0, 0)
+                context.line_to(-pad_x, h / 2)
+                context.line_to(0, h)
+                context.line_to(w / 2, h)
+                context.line_to(w / 2, 0)
+                context.line_to(0, 0)
+            case "(":
+                context.move_to(0 + pad_x / 2, h)
+                context.arc(
+                    0 + pad_x / 2, h / 2, h / 2, math.radians(90), math.radians(270)
+                )
+                context.line_to(w / 2, 0)
+                context.line_to(w / 2, h)
+                context.line_to(0 + pad_x / 2, h)
 
-        rects.append(
-            f'<rect x="{center - slice_w / 2}" y="{self.y}" width="{slice_w}" height="{self.height}" />'
-        )
-        rects.append(
-            f'<rect x="{center - slice_w / 2}" y="{self.y}" width="{slice_w}" height="{self.height}" />'
-        )
+        match self.right:
+            case "]":
+                context.move_to(w / 2, 0)
+                context.line_to(w / 2, h)
+                context.line_to(w, h)
+                context.line_to(w, 0)
+                context.line_to(w / 2, 0)
+            case "/":
+                context.move_to(w / 2, 0)
+                context.line_to(w / 2, h)
+                context.line_to(w, h)
+                context.line_to(w + pad_x, 0)
+                context.line_to(w / 2, 0)
+            case "\\":
+                context.move_to(w / 2, 0)
+                context.line_to(w / 2, h)
+                context.line_to(w + pad_x, h)
+                context.line_to(w, 0)
+                context.line_to(w / 2, 0)
+            case ">":
+                context.move_to(w / 2, 0)
+                context.line_to(w / 2, h)
+                context.line_to(w, h)
+                context.line_to(w + pad_x, h / 2)
+                context.line_to(w, 0)
+                context.line_to(w / 2, 0)
+            case ")":
+                context.move_to(w / 2 - pad_x / 2, 0)
+                context.arc(
+                    w - pad_x / 2, h / 2, h / 2, math.radians(-90), math.radians(90)
+                )
+                context.line_to(w / 2, h)
+                context.line_to(w / 2, 0)
 
-        if self.left == "[":
-            rects.append(
-                f'<rect x="{self.x}" y="{self.y}" width="{slice_w}" height="{self.height}" />'
-            )
-        if self.right == "]":
-            rects.append(
-                f'<rect x="{center}" y="{self.y}" width="{slice_w}" height="{self.height}" />'
-            )
+        context.set_line_width(stroke_width_px)
+        context.set_line_cap(cairocffi.LINE_CAP_ROUND)
+        context.set_line_join(cairocffi.LINE_JOIN_ROUND)
+        context.set_source_rgba(*self.stroke)
+        context.stroke_preserve()
+        context.set_source_rgba(*self.fill)
+        context.fill()
 
-        radius = self.height * 0.5
-        if self.left == "(":
-            rects.append(
-                f'<rect x="{self.x}" y="{self.y}" width="{slice_w}" height="{self.height}" rx="{radius}" />'
-            )
-        if self.right == ")":
-            rects.append(
-                f'<rect x="{right - slice_w}" y="{self.y}" width="{slice_w}" height="{self.height}" rx="{radius}" />'
-            )
-
-        if self.left == "/":
-            rects.append(
-                f'<rect x="{self.x}" y="{self.y}" width="{slice_w}" height="{self.height}" transform="skewX(-20)" />'
-            )
-        if self.right == "/":
-            rects.append(
-                f'<rect x="{center + pad1}" y="{self.y}" width="{slice_w}" height="{self.height}" transform="skewX(-20)" />'
-            )
-
-        if self.left == "\\":
-            rects.append(
-                f'<rect x="{self.x - padhalf}" y="{self.y}" width="{slice_w + padhalf}" height="{self.height}" transform="skewX(20)" />'
-            )
-        if self.right == "\\":
-            rects.append(
-                f'<rect x="{center}" y="{self.y}" width="{slice_w}" height="{self.height}" transform="skewX(20)" />'
-            )
-
-        hyp = self.height / sqrt(2)
-        if self.left == "<":
-            rects.append(
-                f'<rect x="{self.x + pad1}" y="{self.y}" width="{slice_w / 2}" height="{self.height}" />'
-            )
-            rects.append(
-                f'<rect x="0" y="0" width="{hyp}" height="{hyp}" transform="translate({self.x + pad1}, {self.y}) rotate(45)" />'
-            )
-        if self.right == ">":
-            rects.append(
-                f'<rect x="{center}" y="{self.y}" width="{slice_w - pad1}" height="{self.height}" />'
-            )
-            rects.append(
-                f'<rect x="0" y="0" width="{hyp}" height="{hyp}" transform="translate({self.x + self.width - pad1}, {self.y}) rotate(45)" />'
-            )
-
-        return "\n".join(rects)
-
-    def toxml_after(self):
-        pass
-
-
-class OutlineStyle:
-    def __init__(self, padding=[100, 100]):
-        self.padding = padding
-        self.border_width = 0
-        self.x = 0
-        self.y = 0
-        self.width = 0
-        self.height = 0
-
-    def preprocess(self, text: str):
-        return text
-
-    def apply(self, text):
-        self.x = -self.padding[0]
-        self.y = -self.padding[0]
-        self.width = text.width_px + self.padding[0] * 2
-        self.height = text.y_bearing_px + self.padding[1] * 2
-        self.border_width = text.size * 10
-
-    def toxml_before(self):
-        return f'<rect x="{self.x}" y="{self.y}" width="{self.width}" height="{self.height}" stroke="black" stroke-width="{self.border_width}" fill="transparent" />'
-
-    def toxml_after(self):
-        pass
-
-
-class _Text:
-    def __init__(
-        self,
-        *,
-        text,
-        font,
-        mmpx,
-        bold=False,
-        italic=False,
-        size=2,
-        line_spacing=1.5,
-        align="center",
-        flip=False,
-        fill="black",
-        stroke="black",
-        stroke_width=0,
-    ):
-        self.text = text
-        self.size = size
-        self.bold = bold
-        self.italic = italic
-        self.line_spacing = line_spacing
-        self.font = font
-        self.align = align
-        self.flip = flip
-        self.fill = fill
-        self.stroke = stroke
-        self.stroke_width = stroke_width
-        self.mmpx = mmpx
-
-        self._generate_spans()
-
-    def _generate_spans(self):
-        self.spans = []
-
-        align = _ALIGN[self.align]
-        lines = self.text.split("\n")
-        width = 0
-        height = 0
-        total_y_bearing = 0
-
-        (
-            font_ascent,
-            font_descent,
-            font_height,
-            _,
-            font_max_y_advance,
-        ) = _get_font_extents(
-            font=self.font, size=self.size, bold=self.bold, italic=self.italic
-        )
-        printv(
-            f"Font metrics:\n"
-            f"- {self.font=}\n"
-            f"- {self.size=}\n"
-            f"- {self.bold=}\n"
-            f"- {self.italic=}\n"
-            f"- {font_ascent=}\n"
-            f"- {font_descent=}\n"
-            f"- {font_height=}\n"
-            f"- {font_max_y_advance=}"
-        )
-
-        for n, line in enumerate(lines):
-            (_, y_bearing, line_w, line_h, _, _) = _get_text_extents(
-                line, font=self.font, size=self.size, bold=self.bold, italic=self.italic
-            )
-            width = max(width, line_w)
-
-            line_spacing = 1 if n == 0 else self.line_spacing
-
-            if n == len(lines) - 1:
-                height += line_h * line_spacing
-            else:
-                height += abs(y_bearing) * line_spacing
-
-            total_y_bearing += font_ascent / 2 * line_spacing
-
-            dy = f"{font_ascent / 2 * line_spacing * self.mmpx}px"
-            self.spans.append(
-                f"""<tspan x="0" dy="{dy}" style="text-anchor: {align};">{line}</tspan>"""
-            )
-
-        self.size_px = self.size * self.mmpx
-        self.width_px = width * self.mmpx
-        self.height_px = height * self.mmpx
-        self.y_bearing_px = total_y_bearing * self.mmpx
-        self.x_px = 0
-        self.y_px = 0
-
-        printv(
-            f"Text extents:\n"
-            f"- {self.size_px=}\n"
-            f"- {self.width_px=}\n"
-            f"- {self.height_px=}\n"
-            f"- {self.y_bearing_px=}"
-        )
-
-    def _combine_transforms(self):
-        transforms = []
-        if self.align == "center":
-            transforms.append(f"translate({self.width_px / 2:.0f}px, 0)")
-
-        if self.flip:
-            transforms.append("scale(-1, 1)")
-
-        if transforms:
-            transform = f"transform: {' '.join(transforms)};"
-        else:
-            transform = ""
-
-        return transform
-
-    def _text_style(self):
-        style = f"font-family: {self.font}; " f"font-size: {self.size_px}px; "
-
-        if self.bold:
-            style = f"{style} font-weight: bold;"
-
-        if self.italic:
-            style = f"{style} font-style: italic;"
-
-        return style
-
-    def _paint_style(self):
-        style = (
-            f"fill: {self.fill}; "
-            f"stroke: {self.stroke}; "
-            f"stroke-width: {self.stroke_width}; "
-        )
-
-        return style
-
-    def toxml(self):
-        return f"""
-        <text x="{self.x_px}" y="{self.y_px}" style="{self._text_style()} {self._combine_transforms()} {self._paint_style()}">
-            {"".join(self.spans)}
-        </text>"""
-
-
-def _generate_svg(*, text, padding, dpi, style, **kwargs):
-    mmpx = dpi / 25.4
-
-    text = style.preprocess(text)
-    text_gen = _Text(text=text, mmpx=mmpx, **kwargs)
-    style.apply(text_gen)
-
-    svg_x = padding[0] * mmpx
-    svg_y = padding[1] * mmpx
-    svg_width = text_gen.width_px + (padding[0] * 2 * mmpx)
-    svg_height = text_gen.height_px + (padding[1] * 2 * mmpx)
-
-    return f"""\
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg width="100%" height="100%" viewBox="0 0 {svg_width} {svg_height}" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve">
-<g style="transform: translate({svg_x}px, {svg_y}px)">
-    {style.toxml_before()}
-    {text_gen.toxml()}
-    {style.toxml_after()}
-</g>
-</svg>"""
+        context.restore()
 
 
 def generate(
     *,
     text,
+    font="Space Mono",
+    bold=False,
+    italic=False,
+    strikethrough=False,
+    underline=False,
+    overline=False,
     layer="F.SilkS",
-    padding=[2, 2],
+    size_mm=2,
+    stroke_mm=0,
+    align="center",
+    line_spacing=1,
+    padding_mm=[1, 1],
     dpi=2540,
-    style=Style(),
-    **kwargs,
+    outline_stroke_mm=0,
+    outline_fill=False,
 ):
+    dpmm = dpi / 25.4
     flip = layer.startswith("B.")
 
     workdir = tempfile.mkdtemp()
     atexit.register(lambda path: shutil.rmtree(path), workdir)
+    workdir = "."
 
     png_path = os.path.join(workdir, "fancytext.png")
 
-    printv(f"Generating SVG {padding=} {dpi=} {style=} {flip=}")
-    svg = SVGDocument(
-        text=_generate_svg(
-            text=text, flip=flip, padding=padding, dpi=dpi, style=style, **kwargs
-        ),
-        dpi=dpi,
+    outline_ = Outline(
+        fill="black" if outline_fill else "white",
+        stroke_width_mm=outline_stroke_mm,
+        padding_mm=padding_mm,
     )
 
-    with open(os.path.join(workdir, "fancytext.svg"), "w") as fh:
-        fh.write(svg.tostring())
+    text = outline_.preprocess(text)
 
-    printv("Rendering SVG")
-    svg.render(png_path)
+    text_ = Text(
+        text=text,
+        font=font,
+        bold=bold,
+        italic=italic,
+        strikethrough=strikethrough,
+        underline=underline,
+        overline=overline,
+        size_mm=size_mm,
+        fill="white" if outline_fill else "black",
+        stroke_width_mm=stroke_mm,
+        stroke="white" if outline_fill else "black",
+        line_spacing=line_spacing,
+        align=align,
+    )
+
+    w_px = round(text_.ink_extents_px[2] + (padding_mm[0] + 30) * dpmm)
+    h_px = round(text_.ink_extents_px[3] + (padding_mm[1] + 10) * dpmm)
+    printv(f"Surface size {w_px=} {h_px=}")
+
+    surface = cairocffi.ImageSurface(cairocffi.FORMAT_ARGB32, w_px, h_px)
+    context = cairocffi.Context(surface)
+
+    context.rectangle(0, 0, w_px, h_px)
+    context.set_source_rgb(1, 1, 1)
+    context.fill()
+
+    if flip:
+        printv("Outputting on back layer, flipping image")
+        context.scale(-1, 1)
+        context.translate(-w_px, 0)
+
+    if outline_stroke_mm:
+        outline_.draw(context, text_)
+
+    text_.draw(context)
+
+    with open(png_path, "wb") as image_file:
+        surface.write_to_png(image_file)
 
     printv("Tracing image")
     fp = trace.trace(
@@ -399,65 +385,121 @@ def generate(
 def main():
     import pyperclip
 
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument("--font", default="Space Mono")
-    parser.add_argument("--bold", action=argparse.BooleanOptionalAction)
-    parser.add_argument("--italic", action=argparse.BooleanOptionalAction)
-    parser.add_argument("--size", type=float, default=2)
-    parser.add_argument("--stroke-width", type=float, default=0)
-    parser.add_argument("--line-spacing", type=float, default=1.5)
-    parser.add_argument(
-        "--align", default="center", choices=["left", "center", "right"]
+    parser = argparse.ArgumentParser(
+        "fancytext", formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument("--layer", default=None)
-    parser.add_argument("--back-silk", action="store_true")
-    parser.add_argument("--front-copper", action="store_true")
-    parser.add_argument("--back-copper", action="store_true")
-    parser.add_argument("--dpi", type=int, default=2540)
-    parser.add_argument("--style", default="none", choices=["none", "box", "outline"])
-    parser.add_argument("text")
 
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable to print additional information during generation",
+    )
+
+    g = parser.add_argument_group(title="text")
+    g.add_argument(
+        "--font", default=default_param_value(generate, "font"), help="Font family name"
+    )
+    g.add_argument("--bold", action=argparse.BooleanOptionalAction)
+    g.add_argument("--italic", action=argparse.BooleanOptionalAction)
+    g.add_argument("--strikethrough", action=argparse.BooleanOptionalAction)
+    g.add_argument("--underline", action=argparse.BooleanOptionalAction)
+    g.add_argument("--overline", action=argparse.BooleanOptionalAction)
+    g.add_argument(
+        "--size",
+        type=float,
+        default=default_param_value(generate, "size_mm"),
+        help="Text height, in mm",
+    )
+    g.add_argument(
+        "--stroke",
+        type=float,
+        default=default_param_value(generate, "stroke_mm"),
+        help="Additional outline stroke to add to the text, in mm",
+    )
+    g.add_argument(
+        "--line-spacing",
+        type=float,
+        default=default_param_value(generate, "line_spacing"),
+        help="Spacing between lines in multiples of the font's line height",
+    )
+
+    g.add_argument(
+        "--align",
+        default="center",
+        choices=["left", "center", "right"],
+        help="Text alignment",
+    )
+
+    g = parser.add_argument_group(title="outline")
+    g.add_argument(
+        "--padding",
+        type=float,
+        nargs=2,
+        default=default_param_value(generate, "padding_mm"),
+        help="Amount of padding between the outline box and the text, in mm",
+    )
+    g.add_argument(
+        "--outline-stroke",
+        type=float,
+        default=default_param_value(generate, "outline_stroke_mm"),
+        help="Outline stroke thickness, in mm",
+    )
+    g.add_argument(
+        "--outline-fill",
+        action=argparse.BooleanOptionalAction,
+        default=default_param_value(generate, "outline_fill"),
+        help="Whether or not the outline box is filled",
+    )
+
+    g = parser.add_argument_group(title="output")
+    mg = g.add_mutually_exclusive_group()
+    mg.add_argument("--layer", default=None)
+    mg.add_argument("--front-silk", action="store_true")
+    mg.add_argument("--back-silk", action="store_true")
+    mg.add_argument("--front-copper", action="store_true")
+    mg.add_argument("--back-copper", action="store_true")
+
+    g.add_argument(
+        "--dpi",
+        type=int,
+        default=default_param_value(generate, "dpi"),
+        help="Dots per inch, higher values result in better resolution but longer processing time",
+    )
+
+    parser.add_argument("text")
     args = parser.parse_args()
 
     set_verbose(args.verbose)
 
-    style = Style()
-
-    if args.style == "box":
-        style = BoxStyle()
-        args.bold = True
-        args.italic = True
-        args.stroke_width = 5
-
-    if args.style == "outline":
-        style = OutlineStyle()
-        args.bold = True
-        args.italic = True
-
-    if not args.layer:
-        if args.back_silk:
-            args.layer = "B.SilkS"
-        elif args.front_copper:
-            args.layer = "F.Cu"
-        elif args.back_copper:
-            args.layer = "B.Cu"
-        else:
-            args.layer = "F.SilkS"
+    if args.back_silk:
+        args.layer = "B.SilkS"
+    elif args.front_copper:
+        args.layer = "F.Cu"
+    elif args.back_copper:
+        args.layer = "B.Cu"
+    elif args.front_silk:
+        args.layer = "F.SilkS"
+    elif not args.layer:
+        args.layer = "F.SilkS"
 
     mod_text = generate(
         text=args.text,
-        layer=args.layer,
-        size=args.size,
         font=args.font,
         bold=args.bold,
         italic=args.italic,
-        stroke_width=args.stroke_width,
-        align=args.align,
+        strikethrough=args.strikethrough,
+        underline=args.underline,
+        overline=args.overline,
+        size_mm=args.size,
+        stroke_mm=args.stroke,
         line_spacing=args.line_spacing,
+        align=args.align,
+        layer=args.layer,
         dpi=args.dpi,
-        style=style,
+        padding_mm=args.padding,
+        outline_stroke_mm=args.outline_stroke,
+        outline_fill=args.outline_fill,
     )
 
     pyperclip.copy(mod_text)

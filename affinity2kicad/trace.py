@@ -63,7 +63,9 @@ def _bezier_to_points(p1, p2, p3, p4, delta=0.25):
     yield p4
 
 
-def _path_to_poly_pts(path) -> Generator[tuple[float, float], None, None]:
+def _path_to_poly_pts(
+    path, bezier_resolution=0.25
+) -> Generator[tuple[float, float], None, None]:
     last = potracecffi.curve_start_point(path.curve)
     yield last
 
@@ -72,7 +74,9 @@ def _path_to_poly_pts(path) -> Generator[tuple[float, float], None, None]:
             yield segment.c1
             yield segment.c2
         elif segment.tag == potracecffi.CURVETO:
-            yield from _bezier_to_points(last, segment.c0, segment.c1, segment.c2)
+            yield from _bezier_to_points(
+                last, segment.c0, segment.c1, segment.c2, delta=bezier_resolution
+            )
 
         last = segment.c2
 
@@ -102,7 +106,7 @@ def _prepare_image(
 
 
 def _trace_bitmap_to_polys(
-    bitmap: np.array, center: bool = True
+    bitmap: np.array, center: bool = True, bezier_resolution=0.25
 ) -> list[gdstk.Polygon]:
     printv("Tracing")
     trace_result = potracecffi.trace(bitmap, turdsize=0)
@@ -117,7 +121,10 @@ def _trace_bitmap_to_polys(
     polys = []
 
     for path in potracecffi.iter_paths(trace_result):
-        pts = [(p[0] + offset[0], p[1] + offset[1]) for p in _path_to_poly_pts(path)]
+        pts = [
+            (p[0] + offset[0], p[1] + offset[1])
+            for p in _path_to_poly_pts(path, bezier_resolution=bezier_resolution)
+        ]
         hole = path.sign == ord("-")
 
         if not hole:
@@ -182,10 +189,13 @@ def trace(
     dpi: float = 2540,
     layer: str = "F.SilkS",
     center: bool = True,
+    bezier_resolution=0.25,
 ):
     image = _load_image(image_path)
     bitmap = _prepare_image(image, invert=invert, threshold=threshold)
-    polys = _trace_bitmap_to_polys(bitmap, center=center)
+    polys = _trace_bitmap_to_polys(
+        bitmap, center=center, bezier_resolution=bezier_resolution
+    )
     fp = generate_footprint(polys=polys, dpi=dpi, layer=layer)
     return fp
 
@@ -199,6 +209,7 @@ def main():
     parser.add_argument("--dpi", type=float, default=2540)
     parser.add_argument("--invert", action="store_true")
     parser.add_argument("--threshold", type=int, default=127)
+    parser.add_argument("--bezier-resolution", type=float, default=0.25)
     parser.add_argument(
         "--layer",
         choices=[
@@ -224,6 +235,7 @@ def main():
         threshold=args.threshold,
         dpi=args.dpi,
         layer=args.layer,
+        bezier_resolution=args.bezier_resolution,
     )
 
     pyperclip.copy(fp)
