@@ -15,3 +15,4 @@ if sys.platform == "darwin":
 import cairocffi
 import pangocffi
 import pangocairocffi
+import cairosvg

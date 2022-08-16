@@ -6,8 +6,8 @@ import math
 import re
 from defusedxml import ElementTree
 import cssselect2
-import cairocffi as cairo
-import cairosvg
+
+from ._cffi_deps import cairocffi, cairosvg
 
 
 def _el_get(self, key):
@@ -24,7 +24,7 @@ setattr(cssselect2.ElementWrapper, "set", _el_set)
 
 def _get_matrix_from_transform(transform_string):
     # Adapted from cairosvg
-    matrix = cairo.Matrix()
+    matrix = cairocffi.Matrix()
     if not transform_string:
         return matrix
 
@@ -33,7 +33,7 @@ def _get_matrix_from_transform(transform_string):
     for transformation_type, transformation in transformations:
         values = [float(value) for value in transformation.split(",")]
         if transformation_type == "matrix":
-            matrix = cairo.Matrix(*values).multiply(matrix)
+            matrix = cairocffi.Matrix(*values).multiply(matrix)
         else:
             raise ValueError("Unexpected transform type", transformation_type)
 
@@ -41,7 +41,7 @@ def _get_matrix_from_transform(transform_string):
 
 
 def _calculate_total_transform(cssel):
-    matrix = cairo.Matrix()
+    matrix = cairocffi.Matrix()
     for ancestor in list(reversed(list(cssel.iter_ancestors()))) + [cssel]:
         matrix = (
             _get_matrix_from_transform(ancestor.etree_element.get("transform")) * matrix
@@ -177,6 +177,6 @@ class SVGDocument:
         surface = cairosvg.surface.PNGSurface(tree, output=None, dpi=self.dpi)
 
         with open(dst, "wb") as fh:
-            surface.cairo.write_to_png(fh)
+            surface.cairocffi.write_to_png(fh)
 
         return dst

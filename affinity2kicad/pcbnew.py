@@ -3,7 +3,6 @@
 # Full text available at: https://opensource.org/licenses/MIT
 
 import io
-import math
 import datetime
 
 
