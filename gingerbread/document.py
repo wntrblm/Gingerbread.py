@@ -4,8 +4,9 @@
 
 import math
 import re
-from defusedxml import ElementTree
+
 import cssselect2
+from defusedxml import ElementTree
 
 from ._cffi_deps import cairocffi, cairosvg
 

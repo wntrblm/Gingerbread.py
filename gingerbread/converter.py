@@ -5,14 +5,12 @@
 import concurrent.futures
 import os.path
 
-import svgpathtools
 import rich
 import rich.live
 import rich.text
+import svgpathtools
 
-from affinity2kicad import pcbnew
-
-from . import trace
+from . import pcbnew, trace
 from ._utils import bezier_to_points
 
 console = rich.get_console()

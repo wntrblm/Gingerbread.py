@@ -1,8 +1,12 @@
-# Affinity2KiCAD & Fancytext
+# Gingerbread
 
-*Affinity2KiCAD* is a set of Python utilities used by [Winterbloom](https://winterbloom.com) to create decorative PCBs from SVGs exported from [Affinity Designer](https://affinity.serif.com/en-gb/designer/).
+*Gingerbread* is a set of Python utilities used by [Winterbloom](https://winterbloom.com) to create decorative printed circuit boards (PCBs).
 
-*Fancytext* is a Python utility used to generate beautiful text labels for KiCAD.
+Gingerbread consists of three utilities:
+
+* [Affinity2KiCAD](#using-affinity2kicad) helps convert designs created with [Affinity Designer](https://affinity.serif.com/en-gb/designer/) to KiCAD PCB files.
+* [Fancytext](#using-fancytext) is used to generate beautiful text labels for KiCAD PCBs.
+* [Trace](#using-trace) is a re-implementation of KiCAD's "Image Converter" program ([bitmap2component](https://gitlab.com/kicad/code/kicad/-/tree/master/bitmap2component)) as a Python library and command line tool to enable automation.
 
 **NOTE**: This tool is *extremely* tailored to Winterbloom's needs. It's not perfect, it's not universal, and it probably won't work the way you think it will. Because of this, it comes with no warranty and no promise of support- again, **we won't be providing any free support for this.**
 
@@ -25,7 +29,7 @@ brew install cairo pango pangocairo potrace
 You'll also need Python 3.10 or later. Install using `pip`:
 
 ```sh
-python3 -m pip install affinity2kicad
+python3 -m pip install gingerbread
 ```
 
 ## Using Affinity2KiCAD
@@ -39,7 +43,7 @@ Fancytext is intended to be relatively easy to use. It's a terminal application 
 The most basic example is:
 
 ```sh
-python3 -m affinity2kicad.fancytext "example"
+python3 -m gingerbread.fancytext "example"
 ```
 
 Which will generate a simple text label:
@@ -51,17 +55,17 @@ This rudimentary example isn't much more useful than KiCAD's own text facilities
 You can change various aspects of how the text is rendered:
 
 ```sh
-python3 -m affinity2kicad.fancytext --font "Pluto" --italic --size 3 "example"
+python3 -m gingerbread.fancytext --font "Pluto" --italic --size 3 "example"
 ```
 
 ![A fancier text label](readme_resources/fancytext-2.png)
 
-You can run `python3 -m affinity2kicad.fancytext --help` to get a complete list of options.
+You can run `python3 -m gingerbread.fancytext --help` to get a complete list of options.
 
 Fancytext has another fancy trick- outlines. You can use outlines to call more attention to your text labels. There are various outline styles, starting with `--outline-stroke`:
 
 ```sh
-python3 -m affinity2kicad.fancytext --outline-stroke 0.5 "example"
+python3 -m gingerbread.fancytext --outline-stroke 0.5 "example"
 ```
 
 ![A fancy stroked outline](readme_resources/fancytext-3.png)
@@ -69,7 +73,7 @@ python3 -m affinity2kicad.fancytext --outline-stroke 0.5 "example"
 There's also the more eye-catching `--outline-fill`:
 
 ```sh
-python3 -m affinity2kicad.fancytext --outline-fill --outline-stroke 0.2 "example"
+python3 -m gingerbread.fancytext --outline-fill --outline-stroke 0.2 "example"
 ```
 
 ![A fancy filled outline](readme_resources/fancytext-4.png)
@@ -77,15 +81,15 @@ python3 -m affinity2kicad.fancytext --outline-fill --outline-stroke 0.2 "example
 The shape of the end caps can be changed by wrapping your text in `[]`, `||`, `<>`, `()`, `//`, or `\\`, and you can mix and match:
 
 ```sh
-python3 -m affinity2kicad.fancytext --outline-fill --outline-stroke 0.2 "/example>"
+python3 -m gingerbread.fancytext --outline-fill --outline-stroke 0.2 "/example>"
 ```
 
 ![A fancy filled outline with fancy caps](readme_resources/fancytext-5.png)
 
-There are *lots* of options for customizing the look of these labels. You can run `python3 -m affinity2kicad.fancytext --help` to get a complete list of options. As an example, we like using these settings for our labels:
+There are *lots* of options for customizing the look of these labels. You can run `python3 -m gingerbread.fancytext --help` to get a complete list of options. As an example, we like using these settings for our labels:
 
 ```sh
-fancytext --font "Space Mono" --bold --italic --stroke 0.1 --padding 0 0 --outline-stroke 0.2 --outline-fill "fancytext"
+python3 -m gingerbread.fancytext --font "Space Mono" --bold --italic --stroke 0.1 --padding 0 0 --outline-stroke 0.2 --outline-fill "fancytext"
 ```
 
 Which ends up looking like this:
