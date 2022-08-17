@@ -177,6 +177,6 @@ class SVGDocument:
         surface = cairosvg.surface.PNGSurface(tree, output=None, dpi=self.dpi)
 
         with open(dst, "wb") as fh:
-            surface.cairocffi.write_to_png(fh)
+            surface.cairo.write_to_png(fh)
 
         return dst
