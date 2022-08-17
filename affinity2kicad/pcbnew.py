@@ -4,6 +4,7 @@
 
 import io
 import datetime
+import uuid
 
 
 class PCB:
@@ -48,9 +49,25 @@ class PCB:
             f"(gr_line (start {x1 + self.offset[0]} {y1 + self.offset[1]}) (end {x2 + self.offset[0]} {y2 + self.offset[1]}) (layer Edge.Cuts) (width 0.5))\n"
         )
 
-    def add_arc(self, center_x, center_y, end_x, end_y, rotation):
+    def add_arc(self, start_x, start_y, mid_x, mid_y, end_x, end_y):
         self.text.write(
-            f"(gr_arc (start {center_x + self.offset[0]} {center_y + self.offset[1]}) (end {end_x + self.offset[0]} {end_y + self.offset[1]}) (angle {rotation}) (layer Edge.Cuts) (width 0.5))\n"
+            f"(gr_arc (start {start_x + self.offset[0]} {start_y + self.offset[1]}) (mid {mid_x + self.offset[0]} {mid_y + self.offset[1]}) (end {end_x + self.offset[0]} {end_y + self.offset[1]}) (layer Edge.Cuts) (width 0.5))\n"
+        )
+
+    def add_poly(self, points: list[tuple[float, float]], *, layer: str):
+        self.text.write("  (gr_poly\n")
+        self.text.write("    (pts \n")
+
+        for pt in points:
+            self.text.write(f"      (xy {pt[0] + self.offset[0]} {pt[1] + self.offset[1]})\n")
+
+        self.text.write(
+            f"     )\n"
+            f'    (layer "{layer}")\n'
+            f"    (fill none)\n"
+            f"    (width 0.5)\n"
+            f'    (tstamp "{uuid.uuid4()}")\n'
+            f"  )\n",
         )
 
     def add_outline(self, x, y, width, height):
