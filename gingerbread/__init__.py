@@ -2,12 +2,16 @@
 # Published under the standard MIT License.
 # Full text available at: https://opensource.org/licenses/MIT
 
-"""Winterbloom's tooling for converting Affinity Designer SVG files to KiCAD PCB files."""
+"""
+Gingerbread is a set of Python utilities used by Winterbloom
+(https://winterbloom.com) to create decorative printed circuit boards (PCBs).
+"""
 
 from . import helpers
 
 __version__ = "0.0.0.dev0"
 __all__ = ["convert", "helpers"]
+
 
 def convert(*, source, title, rev):
     from .converter import Converter
