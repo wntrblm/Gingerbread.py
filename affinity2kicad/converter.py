@@ -10,7 +10,10 @@ import rich
 import rich.live
 import rich.text
 
+from affinity2kicad import pcbnew
+
 from . import trace
+from ._utils import bezier_to_points
 
 console = rich.get_console()
 
@@ -25,7 +28,7 @@ LAYERS = {
 
 
 class Converter:
-    def __init__(self, doc, pcb):
+    def __init__(self, doc, pcb: pcbnew.PCB):
         self.doc = doc
         self.pcb = pcb
         self.bbox = (0, 0, 0, 0)
@@ -138,34 +141,31 @@ class Converter:
         self.pcb.add_horizontal_measurement(0, 0, self.bbox[2], 0)
         self.pcb.add_vertical_measurement(0, 0, 0, self.bbox[3])
 
-        # Go through each path segment and add it to the PCB.
-        segments = [
-            _quad_bezier_to_arc(seg)
-            if isinstance(seg, svgpathtools.CubicBezier)
-            else seg
-            for seg in path
-        ]
+        points = []
 
-        for seg in segments:
+        for seg in path:
             if isinstance(seg, svgpathtools.Line):
-                self.pcb.add_line(
-                    self.doc.to_mm(seg.start.real, 2),
-                    self.doc.to_mm(seg.start.imag, 2),
-                    self.doc.to_mm(seg.end.real, 2),
-                    self.doc.to_mm(seg.end.imag, 2),
-                )
+                points.append((self.doc.to_mm(seg.start.real, 2), self.doc.to_mm(seg.start.imag, 2)))
+                points.append((self.doc.to_mm(seg.end.real, 2), self.doc.to_mm(seg.end.imag, 2)))
 
-            elif isinstance(seg, svgpathtools.Arc):
-                self.pcb.add_arc(
-                    self.doc.to_mm(seg.center.real, 2),
-                    self.doc.to_mm(seg.center.imag, 2),
-                    self.doc.to_mm(seg.end.real, 2),
-                    self.doc.to_mm(seg.end.imag, 2),
-                    seg.rotation,
-                )
+            elif isinstance(seg, svgpathtools.CubicBezier):
+                for point in bezier_to_points(
+                    (seg.start.real, seg.start.imag),
+                    (seg.control1.real, seg.control1.imag),
+                    (seg.control2.real, seg.control2.imag),
+                    (seg.end.real, seg.end.imag),
+                    delta=1
+                ):
+                    points.append((self.doc.to_mm(point[0]), self.doc.to_mm(point[1])))
+
+            elif seg is None:
+                print("Hmm, there was an empty segment?")
+                pass
 
             else:
                 raise ValueError(f"Can't convert path segment {seg}.")
+
+        self.pcb.add_poly(points, layer="Edge.Cuts")
 
         return True
 
@@ -262,38 +262,3 @@ def convert_layer(doc, tmpdir, src_layer_name, dst_layer_name):
         fh.write(fp)
 
     return src_layer_name, mod_filename, False
-
-
-def _quad_bezier_to_arc(b):
-    bbox = [round(n, 2) for n in b.bbox()]
-    xmin, xmax, ymin, ymax = bbox
-
-    # Start and end *must* lie on the corners of the bounding box.
-    # Figure out which corner is the starting corner.
-
-    if round(b.start.real, 2) not in bbox:
-        return
-    if round(b.start.imag, 2) not in bbox:
-        return
-    if round(b.end.real, 2) not in bbox:
-        return
-    if round(b.end.imag, 2) not in bbox:
-        return
-
-    # Check if this is just a line.
-    if b.start == b.control1 and b.end == b.control2:
-        return svgpathtools.Line(b.start, b.end)
-
-    # Start and end must be on opposite corners
-    if round(b.start.real, 2) == round(b.end.real, 2):
-        return
-    if round(b.start.imag, 2) == round(b.end.imag, 2):
-        return
-
-    radius = complex(xmax - xmin, ymax - ymin)
-
-    arc = svgpathtools.Arc(
-        start=b.start, radius=radius, rotation=90, large_arc=0, sweep=0, end=b.end
-    )
-
-    return arc
