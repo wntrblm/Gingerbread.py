@@ -1,14 +1,16 @@
 [build-system]
-requires = ["flit_core >=2,<4"]
+requires = ["flit_core >=3.2,<4"]
 build-backend = "flit_core.buildapi"
 
-[tool.flit.metadata]
-module = "affinity2kicad"
-author = "Alethea Katherine Flowers"
-author-email = "thea@winterbloom.com"
-home-page = "https://github.com/wntrblm/affinity2kicad"
-classifiers = ["License :: OSI Approved :: MIT License"]
-requires = [
+[project]
+name = "gingerbread"
+authors = [
+    {name = "Alethea Katherine Flowers", email = "thea@winterbloom.com"}
+]
+dynamic = ["version", "description"]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
     "cairosvg",
     "cairocffi",
     "pangocffi",
@@ -23,3 +25,7 @@ requires = [
     "pyvips",
     "gdstk",
 ]
+classifiers = ["License :: OSI Approved :: MIT License"]
+
+[project.urls]
+Source = "https://github.com/wntrblm/gingerbread"
