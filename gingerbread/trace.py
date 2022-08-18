@@ -15,7 +15,6 @@ import io
 import pathlib
 import sys
 from typing import Generator
-import uuid
 
 import gdstk
 import numpy as np
@@ -23,6 +22,7 @@ import potracecffi
 import pyvips
 import rich
 
+from . import sexpr as s
 from ._print import set_verbose, printv
 from ._utils import bezier_to_points
 
@@ -110,45 +110,23 @@ def _trace_bitmap_to_polys(
     return polys
 
 
-def _generate_fp_poly(
-    poly: gdstk.Polygon, *, layer: str, dpmm: float, output
-) -> str:
-    output.write("  (fp_poly\n")
-    output.write("    (pts \n")
+def _generate_fp_poly(poly: gdstk.Polygon, *, layer: str, dpmm: float) -> s.S:
+    pts = s.pts(*(s.xy(pt[0] * dpmm, pt[1] * dpmm) for pt in poly.points))
 
-    for pt in poly.points:
-        output.write(f"      (xy {pt[0] * dpmm} {pt[1] * dpmm})\n")
-
-    output.write(
-        f"     )\n"
-        f'    (layer "{layer}")\n'
-        f"    (fill solid)\n"
-        f"    (width 0)\n"
-        f'    (tstamp "{uuid.uuid4()}")\n'
-        f"  )\n",
-    )
+    return s.fp_poly(pts=pts, layer=layer, width=0, fill=True)
 
 
 def generate_footprint(polys: list[gdstk.Polygon], *, dpi: float, layer: str) -> str:
     printv(f"Generating footprint, {dpi=}")
     dpmm = 25.4 / dpi
-    output = io.StringIO()
 
-    output.write(
-        f'(footprint "Graphics"\n'
-        f"  (version 20220101)\n"
-        f'  (generator "affinity2kicad")\n'
-        f'  (layer "{layer}")\n'
-        f'  (tedit "{uuid.uuid1()}")\n'
-        f"  (at 0 0)\n",
+    return str(
+        s.footprint(
+            "Graphics",
+            *(_generate_fp_poly(poly, layer=layer, dpmm=dpmm) for poly in polys),
+            layer=layer,
+        )
     )
-
-    for poly in polys:
-        _generate_fp_poly(poly, layer=layer, dpmm=dpmm, output=output)
-
-    output.write(")")
-
-    return output.getvalue()
 
 
 def trace(

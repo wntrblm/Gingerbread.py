@@ -6,6 +6,8 @@ import datetime
 import io
 import uuid as _uuid
 
+# https://dev-docs.kicad.org/en/file-formats/sexpr-intro/
+
 
 def escape_string(s, out: io.TextIOBase):
     # Based on https://docs.kicad.org/doxygen/string__utils_8cpp.html#ada40aaecc8d7b17fa613cf02bf4da7fb
@@ -40,7 +42,14 @@ class S:
         self.token = token
         self.attributes = [x for x in attributes if x is not None]
 
-    def write(self, out: io.TextIOBase):
+    def write(self, out: io.TextIOBase, depth=0):
+
+        tabbed = False
+        tab = "  " * depth
+        if depth:
+            out.write("\n")
+            out.write(tab)
+
         if not self.attributes:
             out.write(self.token)
             return
@@ -50,22 +59,35 @@ class S:
         for attr in self.attributes:
             match attr:
                 case S():
-                    out.write(" ")
-                    attr.write(out)
+                    if attr.attributes:
+                        tabbed = True
+                        attr.write(out, depth=depth + 1)
+                    else:
+                        out.write(" ")
+                        attr.write(out)
                 case str():
                     out.write(" ")
                     escape_string(attr, out)
                 case float():
                     out.write(f" {attr:0.6f}")
+                case _uuid.UUID():
+                    out.write(" ")
+                    escape_string(str(attr), out)
                 case _:
                     out.write(f" {attr}")
 
-        out.write(")")
+        if not tabbed:
+            out.write(")")
+        else:
+            out.write(f"\n{tab})")
 
     def __repr__(self) -> str:
         out = io.StringIO()
         self.write(out)
         return out.getvalue()
+
+    def __str__(self) -> str:
+        return self.__repr__()
 
 
 def optional(name: str, val, *args) -> S | None:
@@ -83,6 +105,10 @@ def width(width: float):
 
 def at(x: float, y: float, *, angle: float = None):
     return S("at", x, y, angle)
+
+
+def xy(x: float, y: float):
+    return S("xy", x, y)
 
 
 def pts(*pts: list[S]):
@@ -207,14 +233,14 @@ def _layer_or_str(v):
 
 def attr(
     *,
-    type: str = "through_hole",
+    type: str = None,
     board_only: bool = True,
     exclude_from_pos_files: bool = True,
     exclude_from_bom: bool = True,
 ):
     return S(
         "attr",
-        type,
+        optional("type", type),
         optional("board_only", board_only),
         optional("exclude_from_pos_files", exclude_from_pos_files),
         optional("exclude_from_bom", exclude_from_bom),
@@ -304,13 +330,13 @@ def fp_rect(
         layer,
         globals()["width"](width),
         optional("locked", locked),
-        S("fill", "solid" if fill else "none"),
+        globals()["fill"](fill),
         tstamp(),
     )
 
 
 def fill(fill: bool):
-    return S("fill", "solid" if fill else "none")
+    return S("fill", S("solid") if fill else "none")
 
 
 def fp_circle(
@@ -451,7 +477,7 @@ def gr_rect(
         S("end", *end),
         layer,
         globals()["width"](width),
-        S("fill", "solid" if fill else "none"),
+        globals()["fill"](fill),
         tstamp(),
     )
 
@@ -610,35 +636,35 @@ def dimension(
     )
 
 
-print(
-    kicad_pcb(
-        general(thickness=1.6),
-        paper(size="USLetter"),
-        title_block(title="Example Board"),
-        layers(
-            layer_def(0, "F.Cu", "signal"),
-            layer_def(31, "B.Cu", "signal"),
-            layer_def(32, "B.Adhes", "user", "B.Adhesive"),
-            layer_def(33, "F.Adhes", "user", "F.Adhesive"),
-            layer_def(34, "B.Paste", "user"),
-            layer_def(35, "F.Paste", "user"),
-            layer_def(36, "B.SilkS", "user", "B.Silkscreen"),
-            layer_def(37, "F.SilkS", "user", "F.Silkscreen"),
-            layer_def(38, "B.Mask", "user"),
-            layer_def(39, "F.Mask", "user"),
-            layer_def(40, "Dwgs.User", "user", "User.Drawings"),
-            layer_def(41, "Cmts.User", "user", "User.Comments"),
-            layer_def(42, "Eco1.User", "user", "User.Eco1"),
-            layer_def(43, "Eco2.User", "user", "User.Eco2"),
-            layer_def(44, "Edge.Cuts", "user"),
-            layer_def(45, "Margin", "user"),
-            layer_def(46, "B.CrtYd", "user", "B.Courtyard"),
-            layer_def(47, "F.CrtYd", "user", "F.Courtyard"),
-            layer_def(48, "B.Fab", "user"),
-            layer_def(49, "F.Fab", "user"),
-        ),
-        setup(),
-        net(0, ""),
-        gr_text(text="Test"),
-    )
-)
+# print(
+#     kicad_pcb(
+#         general(thickness=1.6),
+#         paper(size="USLetter"),
+#         title_block(title="Example Board"),
+#         layers(
+#             layer_def(0, "F.Cu", "signal"),
+#             layer_def(31, "B.Cu", "signal"),
+#             layer_def(32, "B.Adhes", "user", "B.Adhesive"),
+#             layer_def(33, "F.Adhes", "user", "F.Adhesive"),
+#             layer_def(34, "B.Paste", "user"),
+#             layer_def(35, "F.Paste", "user"),
+#             layer_def(36, "B.SilkS", "user", "B.Silkscreen"),
+#             layer_def(37, "F.SilkS", "user", "F.Silkscreen"),
+#             layer_def(38, "B.Mask", "user"),
+#             layer_def(39, "F.Mask", "user"),
+#             layer_def(40, "Dwgs.User", "user", "User.Drawings"),
+#             layer_def(41, "Cmts.User", "user", "User.Comments"),
+#             layer_def(42, "Eco1.User", "user", "User.Eco1"),
+#             layer_def(43, "Eco2.User", "user", "User.Eco2"),
+#             layer_def(44, "Edge.Cuts", "user"),
+#             layer_def(45, "Margin", "user"),
+#             layer_def(46, "B.CrtYd", "user", "B.Courtyard"),
+#             layer_def(47, "F.CrtYd", "user", "F.Courtyard"),
+#             layer_def(48, "B.Fab", "user"),
+#             layer_def(49, "F.Fab", "user"),
+#         ),
+#         setup(),
+#         net(0, ""),
+#         gr_text(text="Test"),
+#     )
+# )
