@@ -11,7 +11,6 @@
 
 
 import argparse
-import io
 import pathlib
 import sys
 from typing import Generator
