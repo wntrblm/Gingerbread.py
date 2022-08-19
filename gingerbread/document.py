@@ -11,8 +11,8 @@ from defusedxml import ElementTree
 from ._cffi_deps import cairocffi, cairosvg
 
 
-def _el_get(self, key):
-    return self.etree_element.get(key)
+def _el_get(self, key, default=None):
+    return self.etree_element.get(key, default)
 
 
 def _el_set(self, key, val):

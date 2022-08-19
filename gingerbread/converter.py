@@ -6,9 +6,11 @@ import concurrent.futures
 import os.path
 
 import rich
+from rich import print
 import rich.live
 import rich.text
 import svgpathtools
+import svgpathtools.svg_to_paths
 
 from . import document, pcb, trace
 from ._utils import path_to_points
@@ -33,7 +35,11 @@ class Converter:
         self.workdir = os.path.join(".", ".cache")
         os.makedirs(self.workdir, exist_ok=True)
 
-    def convert(self, drills=True, layers=True):
+    @property
+    def centroid(self):
+        return self.bbox[0] + (self.bbox[2] / 2), self.bbox[1] + (self.bbox[3] / 2)
+
+    def convert(self, drills: bool = True, layers: bool = True):
         self.convert_outline()
         if drills:
             self.convert_drills()
@@ -41,87 +47,68 @@ class Converter:
             self.convert_layers()
 
     def convert_outline(self):
-        if self._convert_outline_rect():
-            return
+        print("\n[bold]Converting board outline:")
+        edge_cuts_elem = list(self.doc.query_all("#EdgeCuts"))[0]
 
-        if not self._convert_outline_paths():
-            raise ValueError("Unable to create board outline")
-
-    def _convert_outline_rect(self):
-        # Simplest case - the outline is just a rectangle.
-        rects = list(self.doc.query_all("#EdgeCuts rect")) + list(
-            self.doc.query_all("rect#EdgeCuts")
-        )
-
-        if not rects:
-            return None
-
-        # First, find the largest rectangle. That one is our outline.
-        bbox = [0, 0, 0, 0]
-
-        for rect in rects:
-            x = self.doc.to_mm(rect.get("screen_x"), 1)
-            y = self.doc.to_mm(rect.get("screen_y"), 1)
-            width = self.doc.to_mm(rect.get("screen_width"), 1)
-            height = self.doc.to_mm(rect.get("screen_height"), 1)
-            if width * height > bbox[2] * bbox[3]:
-                bbox = [x, y, width, height]
-
-        if bbox[0] != 0 or bbox[1] != 0:
-            raise ValueError("Edge.Cuts x,y is not 0,0.")
-
-        self.bbox = (
-            self.pcb.page_width / 2 - bbox[2],
-            self.pcb.page_height / 2 - bbox[3] / 2,
-            bbox[2],
-            bbox[3],
-        )
-
-        console.print(
-            f"Design outline is [green underline]rectangular[/green underline], bounding box is [green][bold]{bbox[2]:.2f} mm x {bbox[3]:.2f} mm[/bold]."
-        )
-
-        # Now that the PCB offset is known, we can start building the PCB.
-        self.pcb.bbox = self.bbox
-        self.pcb.offset = self.bbox[:2]
-        self.pcb.add_horizontal_measurement(0, 0, self.bbox[2], 0)
-        self.pcb.add_vertical_measurement(0, 0, 0, self.bbox[3])
-
-        # Draw all of the rects onto the PCB
-        for rect in rects:
-            x = self.doc.to_mm(rect.get("screen_x"), 1)
-            y = self.doc.to_mm(rect.get("screen_y"), 1)
-            width = self.doc.to_mm(rect.get("screen_width"), 1)
-            height = self.doc.to_mm(rect.get("screen_height"), 1)
-            self.pcb.add_rect(
-                x, y, width, height, layer="Edge.Cuts", width=0.5, fill=False
-            )
-            console.print(
-                f"- [green]X: {x:.1f} mm, Y: {y:.1f} mm, W: {width:.1f} mm H: {height:.1f} mm"
+        if edge_cuts_elem.local_name in (
+            "path",
+            "rect",
+            "circle",
+            "polygon",
+            "ellipse",
+        ):
+            edge_cuts_elems = [edge_cuts_elem]
+        elif edge_cuts_elem.local_name == "g":
+            edge_cuts_elems = list(self.doc.query_all("#EdgeCuts *"))
+        else:
+            raise ValueError(
+                f"Unable to convert {edge_cuts_elem.local_name}, unknown tag"
             )
 
-        console.print()
-        return True
+        # Convert all shapes to paths.
+        # Based on svgpathtools.svg2paths
+        paths: list[svgpathtools.Path] = []
 
-    def _convert_outline_paths(self):
-        # Complex case - edge cuts is a path
-        edge_cuts = list(self.doc.query_all("#EdgeCuts"))[0]
+        for elem in edge_cuts_elems:
+            path = None
 
-        if edge_cuts.local_name == "g":
-            edge_cuts = list(self.doc.query_all("#EdgeCuts path"))[0]
+            match elem.local_name:
+                case "rect":
+                    path = svgpathtools.parse_path(svgpathtools.svg_to_paths.rect2pathd(elem))
+                case "polygon":
+                    path = svgpathtools.parse_path(svgpathtools.svg_to_paths.polygon2pathd(elem))
+                case "circle" | "ellipse":
+                    path = svgpathtools.parse_path(svgpathtools.svg_to_paths.ellipse2pathd(elem))
+                case "path":
+                    path = svgpathtools.parse_path(elem.get("d"))
+                case _:
+                    print(f"- [red] Not converting unknown element {elem.local_name}")
 
-        if edge_cuts.local_name != "path":
-            raise ValueError("Edge cuts is not a path")
+            if path is None:
+                continue
 
-        path = svgpathtools.parse_path(edge_cuts.get("d"))
-        pathbbox = path.bbox()
+            bbox = list(self.doc.iter_to_mm(path.bbox()))
+            paths.append(path)
+            print(f"- Converted {elem.local_name} with bounding box {bbox}")
+
+        if not paths:
+            raise ValueError("No paths found on EdgeCuts!")
+
+        # Figure out the bounding box (path) of the design so that the offset
+        # can be determined. The path with the largest area is the board
+        # bounding box.
+        paths.sort(key=lambda p: abs(p.area()))
+
+        bounding_path = paths[0]
+
+        pathbbox = bounding_path.bbox()
         bbox = [
             self.doc.to_mm(n)
             for n in (pathbbox[0], pathbbox[2], pathbbox[1], pathbbox[3])
         ]
 
         if bbox[0] != 0 or bbox[1] != 0:
-            raise ValueError(f"Edge.Cuts x,y is not 0,0, found {bbox}")
+            print("[yellow] Board outline bounding box does not start at 0, 0, found {bbox[:2]}")
 
         self.bbox = (
             self.pcb.page_width / 2 - bbox[2],
@@ -131,42 +118,52 @@ class Converter:
         )
 
         console.print(
-            f"Design outline is [bold underline purple]non-rectangular[/bold underline purple], bounding box is [green][bold]{bbox[2]:.2f} mm x {bbox[3]:.2f} mm[/bold]."
+            f"\n[green]Overall board size is [cyan][bold]{bbox[2]:.2f} mm x {bbox[3]:.2f} mm[/bold]."
         )
-        console.print()
 
-        # Now that the PCB offset is known, we can start building the PCB.
+        # Now that the bounding box and offset are known, we can start adding
+        # items to the PCB
         self.pcb.bbox = self.bbox
         self.pcb.offset = self.bbox[:2]
+
+        # Horizontal and vertical measurements for the board bounding box
         self.pcb.add_horizontal_measurement(0, 0, self.bbox[2], 0)
         self.pcb.add_vertical_measurement(0, 0, 0, self.bbox[3])
 
-        points = self.doc.points_to_mm(path_to_points(path))
-        self.pcb.add_poly(points, layer="Edge.Cuts", width=0.5)
+        # Add all paths as polygons
+        for path in paths:
+            points = self.doc.points_to_mm(path_to_points(path))
+            self.pcb.add_poly(points, layer="Edge.Cuts", width=0.5, fill=False)
 
         return True
 
     def convert_drills(self):
-        circles = list(self.doc.query_all("#Drill circle"))
+        console.print("\n[bold]Converting drills:")
 
-        if not circles:
+        drill_elms = list(self.doc.query_all("#Drill *"))
+
+        if not drill_elms:
             console.print("[yellow]No drills found")
 
-        console.print(f"Converting {len(circles)} drills:")
+        count = 0
+        for el in drill_elms:
+            if el.local_name != "circle":
+                print(f"- [red] Non-circular element not converted: {el}")
+                continue
 
-        for el in circles:
             x = self.doc.to_mm(el.get("screen_cx"))
             y = self.doc.to_mm(el.get("screen_cy"))
             d = self.doc.to_mm(float(el.get("screen_r")) * 2)
 
             self.pcb.add_drill(x, y, d)
 
-            console.print(f"- [green]X: {x:.1f} mm, Y: {y:.1f} mm, D: {d:.2f} mm")
+            console.print(f"- X: {x:.1f} mm, Y: {y:.1f} mm, D: {d:.2f} mm")
+            count += 1
 
-        console.print()
+        console.print(f"\n[green]Converted [cyan]{count}[/cyan] drills")
 
     def convert_layers(self):
-        console.print("Converting graphic layers:")
+        console.print("\n[bold]Converting graphic layers:")
         results = {k: "..." for k in LAYERS.keys()}
 
         status = "\n".join(f"- {name}: {status}" for name, status in results.items())
@@ -201,10 +198,6 @@ class Converter:
                     live_status.update(rich.text.Text.from_markup(status))
 
         console.print()
-
-    @property
-    def centroid(self):
-        return self.bbox[0] + (self.bbox[2] / 2), self.bbox[1] + (self.bbox[3] / 2)
 
 
 def convert_layer(doc, tmpdir, position, src_layer_name, dst_layer_name):
