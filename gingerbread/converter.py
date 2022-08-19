@@ -10,7 +10,7 @@ import rich.live
 import rich.text
 import svgpathtools
 
-from . import pcbnew, trace
+from . import document, pcb, trace
 from ._utils import path_to_points
 
 console = rich.get_console()
@@ -26,7 +26,7 @@ LAYERS = {
 
 
 class Converter:
-    def __init__(self, doc, pcb: pcbnew.PCB):
+    def __init__(self, doc: document.SVGDocument, pcb: pcb.PCB):
         self.doc = doc
         self.pcb = pcb
         self.bbox = (0, 0, 0, 0)

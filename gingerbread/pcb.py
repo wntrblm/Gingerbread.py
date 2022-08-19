@@ -2,6 +2,8 @@
 # Published under the standard MIT License.
 # Full text available at: https://opensource.org/licenses/MIT
 
+"""PCB definition utilities"""
+
 import io
 import datetime
 
@@ -9,6 +11,8 @@ from . import sexpr as s
 
 
 class PCB:
+    """A "builder" class for KiCAD PCBs"""
+
     # US Letter
     page_width = 279.4
     page_height = 215.9
