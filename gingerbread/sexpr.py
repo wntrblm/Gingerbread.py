@@ -4,6 +4,7 @@
 
 import datetime
 import io
+from typing import Iterable
 import uuid as _uuid
 
 # https://dev-docs.kicad.org/en/file-formats/sexpr-intro/
@@ -37,6 +38,12 @@ def escape_string(s, out: io.TextIOBase):
     out.write('"')
 
 
+class Literal():
+    def __init__(self, val):
+        self.val = val
+
+literal = Literal
+
 class S:
     def __init__(self, token, *attributes):
         self.token = token
@@ -58,6 +65,8 @@ class S:
 
         for attr in self.attributes:
             match attr:
+                case Literal():
+                    out.write(attr.val)
                 case S():
                     if attr.attributes:
                         tabbed = True
@@ -112,6 +121,7 @@ def xy(x: float, y: float):
 
 
 def pts(*pts: list[S]):
+    pts = (pt if isinstance(pt, S) else xy(*pt) for pt in pts)
     return S("pts", *pts)
 
 
@@ -133,7 +143,7 @@ def general(*, thickness: float = 1.6):
 
 
 def layer_def(ordinal: int, canonical_name: str, type: str, user_name: str = None):
-    return S(ordinal, canonical_name, type, user_name)
+    return S(ordinal, canonical_name, S(type), user_name)
 
 
 def layers(*defs: list[S]):
@@ -188,7 +198,7 @@ def title_block(
     company: str = "",
     comments: list[str] = [],
 ):
-    comments = (S("comment", n, comment) for n, comment in enumerate(comments))
+    comments = (S("comment", n, comment) for n, comment in enumerate(comments, 1))
     return S(
         "title_block",
         S("title", title),
@@ -336,7 +346,7 @@ def fp_rect(
 
 
 def fill(fill: bool):
-    return S("fill", S("solid") if fill else "none")
+    return S("fill", S("solid" if fill else "none"))
 
 
 def fp_circle(
@@ -425,11 +435,105 @@ def fp_curve(
     )
 
 
-def gr_text(
-    text: str,
+def pad(
+    number: str,
     *,
+    type: str,
+    shape: str,
+    layers: str,
     at: S = at(0, 0),
-    layer: str | S = layer("F.Cu"),
+    size: tuple[float, float],
+    locked: bool = False,
+    drill: S = None,
+    roundrect_rratio: float = None,
+    chamfer_ratio: float = None,
+    chamfer: tuple[float, float, float, float] = None,
+    net: S = None,
+    pinfunction: str = None,
+    pintype: str = None,
+    zone_connect: int = None,
+    clearance: float = None,
+):
+    if chamfer is not None:
+        chamfer = S("chamfer", *chamfer)
+
+    return S(
+        "pad",
+        str(number),
+        S(type),
+        S(shape),
+        at,
+        optional("locked", locked),
+        S("size", *size),
+        drill,
+        S("layers", S(layers)),
+        optional("roundrect_rratio", roundrect_rratio),
+        optional("chamfer_ratio", chamfer_ratio),
+        chamfer,
+        net,
+        optional("pinfunction", pinfunction),
+        optional("pintype", pintype),
+        optional("zone_connect", zone_connect),
+        optional("clearance", clearance),
+        tstamp(),
+    )
+
+
+def drill(
+    diameter: float,
+    oval: bool = False,
+    width: float = None,
+    offset: tuple[float, float] = None,
+):
+    if offset is not None:
+        offset = S("offset", *offset)
+
+    return S(
+        "drill", optional("oval", oval), diameter, width, optional("offset", offset)
+    )
+
+
+def justify(
+    *,
+    left: bool = None,
+    right: bool = None,
+    top: bool = None,
+    bottom: bool = None,
+    mirror: bool = None,
+):
+    return S(
+        "justify",
+        optional("left", left),
+        optional("right", right),
+        optional("top", top),
+        optional("bottom", bottom),
+        optional("mirror", mirror),
+    )
+
+
+def effects(
+    *,
+    size: tuple[float, float],
+    thickness: float = None,
+    bold: bool = None,
+    italic: bool = None,
+    justify: S = None,
+):
+    return S(
+        "effects",
+        S(
+            "font",
+            S("size", *size),
+            optional("thickness", thickness),
+            optional("bold", bold),
+            optional("italic", italic),
+        ),
+        justify,
+    )
+
+
+def gr_text(
+    text: str, *, at: S = at(0, 0), layer: str | S = layer("F.Cu"), effects: S = None
 ):
     layer = _layer_or_str(layer)
 
@@ -438,6 +542,7 @@ def gr_text(
         text,
         at,
         layer,
+        effects,
         tstamp(),
     )
 
@@ -526,7 +631,7 @@ def gr_arc(
 
 def gr_poly(
     *,
-    pts: S,
+    pts: Iterable,
     layer: str | S = layer("F.Cu"),
     width: float = 0.127,
     fill: bool = False,
@@ -534,8 +639,8 @@ def gr_poly(
     layer = _layer_or_str(layer)
 
     return S(
-        "fp_poly",
-        pts,
+        "gr_poly",
+        globals()["pts"](*pts),
         layer,
         globals()["width"](width),
         globals()["fill"](fill),
@@ -568,7 +673,7 @@ def format(
     units_format: int = 1,
     precision: int = 3,
     override_value: str = None,
-    suppress_zeros: bool = True,
+    suppress_zeroes: bool = True,
 ):
     return S(
         "format",
@@ -578,7 +683,7 @@ def format(
         S("units_format", units_format),
         S("precision", precision),
         optional("override_value", override_value),
-        optional("suppress_zeros", suppress_zeros),
+        optional("suppress_zeroes", suppress_zeroes),
     )
 
 
@@ -609,7 +714,7 @@ def dimension(
     start: tuple[float, float],
     end: tuple[float, float],
     type: str = "aligned",
-    layer: str | S = layer("F.Cu"),
+    layer: str | S = layer("Dwgs.User"),
     locked: bool = False,
     height: float = None,
     orientation: float = None,
@@ -623,48 +728,14 @@ def dimension(
     return S(
         "dimension",
         optional("locked", locked),
-        S("type", type),
+        S("type", S(type)),
         layer,
         tstamp(),
         pts(S("xy", *start), S("xy", *end)),
         optional("height", height),
         optional("orientation", orientation),
         optional("leader_length", leader_length),
-        optional("gr_text", gr_text),
-        optional("format", format),
+        gr_text,
+        format,
         style,
     )
-
-
-# print(
-#     kicad_pcb(
-#         general(thickness=1.6),
-#         paper(size="USLetter"),
-#         title_block(title="Example Board"),
-#         layers(
-#             layer_def(0, "F.Cu", "signal"),
-#             layer_def(31, "B.Cu", "signal"),
-#             layer_def(32, "B.Adhes", "user", "B.Adhesive"),
-#             layer_def(33, "F.Adhes", "user", "F.Adhesive"),
-#             layer_def(34, "B.Paste", "user"),
-#             layer_def(35, "F.Paste", "user"),
-#             layer_def(36, "B.SilkS", "user", "B.Silkscreen"),
-#             layer_def(37, "F.SilkS", "user", "F.Silkscreen"),
-#             layer_def(38, "B.Mask", "user"),
-#             layer_def(39, "F.Mask", "user"),
-#             layer_def(40, "Dwgs.User", "user", "User.Drawings"),
-#             layer_def(41, "Cmts.User", "user", "User.Comments"),
-#             layer_def(42, "Eco1.User", "user", "User.Eco1"),
-#             layer_def(43, "Eco2.User", "user", "User.Eco2"),
-#             layer_def(44, "Edge.Cuts", "user"),
-#             layer_def(45, "Margin", "user"),
-#             layer_def(46, "B.CrtYd", "user", "B.Courtyard"),
-#             layer_def(47, "F.CrtYd", "user", "F.Courtyard"),
-#             layer_def(48, "B.Fab", "user"),
-#             layer_def(49, "F.Fab", "user"),
-#         ),
-#         setup(),
-#         net(0, ""),
-#         gr_text(text="Test"),
-#     )
-# )
