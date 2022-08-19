@@ -110,7 +110,7 @@ def _trace_bitmap_to_polys(
 
 
 def _generate_fp_poly(poly: gdstk.Polygon, *, layer: str, dpmm: float) -> s.S:
-    pts = s.pts(*(s.xy(pt[0] * dpmm, pt[1] * dpmm) for pt in poly.points))
+    pts = ((pt[0] * dpmm, pt[1] * dpmm) for pt in poly.points)
 
     return s.fp_poly(pts=pts, layer=layer, width=0, fill=True)
 
@@ -122,7 +122,7 @@ def generate_footprint(polys: list[gdstk.Polygon], *, dpi: float, layer: str, po
     return str(
         s.footprint(
             "Graphics",
-            at=s.at(*position),
+            at=position,
             *(_generate_fp_poly(poly, layer=layer, dpmm=dpmm) for poly in polys),
             layer=layer,
         )

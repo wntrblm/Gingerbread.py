@@ -81,7 +81,7 @@ class PCB:
                     clearance=0.1,
                     zone_connect=0,
                 ),
-                at=s.at(self.offset[0] + x, self.offset[1] + y)
+                at=(self.offset[0] + x, self.offset[1] + y)
             )
         )
 
@@ -100,7 +100,7 @@ class PCB:
                     clearance=0.1,
                     zone_connect=0,
                 ),
-                at=s.at(self.offset[0] + x, self.offset[1] + y),
+                at=(self.offset[0] + x, self.offset[1] + y),
             )
         )
 
@@ -130,7 +130,7 @@ class PCB:
                 locked=True,
                 gr_text=s.gr_text(
                     f"{value:.2f} mm",
-                    at=s.at(x1, y1 + height / 2),
+                    at=(x1, y1 + height / 2),
                     layer="Dwgs.User",
                     effects=s.effects(
                         size=(text_size, text_size),
@@ -176,7 +176,7 @@ class PCB:
                 locked=True,
                 gr_text=s.gr_text(
                     f"{value:.2f} mm",
-                    at=s.at(x1, y1 + height / 2),
+                    at=(x1, y1 + height / 2),
                     layer="Dwgs.User",
                     effects=s.effects(
                         size=(text_size, text_size),
@@ -196,7 +196,7 @@ class PCB:
         )
 
     def add_literal(self, val: str):
-        self.items.append(s.literal(val))
+        self.items.append(s.L(val))
 
     def write(self, filename):
         pcb = s.kicad_pcb(

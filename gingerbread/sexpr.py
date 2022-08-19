@@ -2,9 +2,14 @@
 # Published under the standard MIT License.
 # Full text available at: https://opensource.org/licenses/MIT
 
+"""KiCAD S-Expression utility library
+
+Note: KiCAD's S-Expression parser *is* position sensitive, so care must be taken with re-ordering items.
+"""
+
 import datetime
 import io
-from typing import Iterable
+from typing import Union
 import uuid as _uuid
 
 # https://dev-docs.kicad.org/en/file-formats/sexpr-intro/
@@ -38,21 +43,23 @@ def escape_string(s, out: io.TextIOBase):
     out.write('"')
 
 
-class Literal():
+class Literal:
     def __init__(self, val):
         self.val = val
 
-literal = Literal
 
-class S:
+L = Literal
+
+
+class Symbol:
     def __init__(self, token, *attributes):
         self.token = token
         self.attributes = [x for x in attributes if x is not None]
 
     def write(self, out: io.TextIOBase, depth=0):
-
         tabbed = False
         tab = "  " * depth
+
         if depth:
             out.write("\n")
             out.write(tab)
@@ -99,7 +106,10 @@ class S:
         return self.__repr__()
 
 
-def optional(name: str, val, *args) -> S | None:
+S = Symbol
+
+
+def _opt(name: str, val, *args) -> S | None:
     if val is False or val is None:
         return None
     elif val is True:
@@ -112,7 +122,9 @@ def width(width: float):
     return S("width", width)
 
 
-def at(x: float, y: float, *, angle: float = None):
+def at(x: Union[S, float] = 0, y: float = 0, angle: float = None):
+    if isinstance(x, S):
+        return x
     return S("at", x, y, angle)
 
 
@@ -120,7 +132,12 @@ def xy(x: float, y: float):
     return S("xy", x, y)
 
 
-def pts(*pts: list[S]):
+def pts(*pts: list[Union[S, tuple[float, float]]]):
+    if not pts:
+        return None
+    if isinstance(pts[0], S) and pts[0].token == "pts":
+        return pts[0]
+
     pts = (pt if isinstance(pt, S) else xy(*pt) for pt in pts)
     return S("pts", *pts)
 
@@ -170,10 +187,10 @@ def setup(
         "setup",
         stackup,
         S("pad_to_mask_clearance", pad_to_mask_clearance),
-        optional("solder_mask_min_width", solder_mask_min_width),
-        optional("pad_to_paste_clearance", pad_to_paste_clearance),
-        optional("pad_to_paste_clearance_ratio", pad_to_paste_clearance_ratio),
-        optional("pad_to_paste_clearance_ratio", pad_to_paste_clearance_ratio),
+        _opt("solder_mask_min_width", solder_mask_min_width),
+        _opt("pad_to_paste_clearance", pad_to_paste_clearance),
+        _opt("pad_to_paste_clearance_ratio", pad_to_paste_clearance_ratio),
+        _opt("pad_to_paste_clearance_ratio", pad_to_paste_clearance_ratio),
         aux_axis_origin,
         grid_origin,
         *plot_settings,
@@ -187,7 +204,7 @@ def paper(
     height: float = None,
     portrait: bool = False,
 ):
-    return S("paper", size, width, height, optional("portrait", portrait))
+    return S("paper", size, width, height, _opt("portrait", portrait))
 
 
 def title_block(
@@ -250,10 +267,10 @@ def attr(
 ):
     return S(
         "attr",
-        optional("type", type),
-        optional("board_only", board_only),
-        optional("exclude_from_pos_files", exclude_from_pos_files),
-        optional("exclude_from_bom", exclude_from_bom),
+        _opt("type", type),
+        _opt("board_only", board_only),
+        _opt("exclude_from_pos_files", exclude_from_pos_files),
+        _opt("exclude_from_bom", exclude_from_bom),
     )
 
 
@@ -262,7 +279,7 @@ def footprint(
     *args,
     locked: bool = False,
     layer: str | S = layer("F.Cu"),
-    at: S = at(0, 0),
+    at: tuple[float, float] = (0, 0),
     attr: S = attr(),
 ):
     layer = _layer_or_str(layer)
@@ -270,9 +287,9 @@ def footprint(
     return S(
         "footprint",
         library_link,
-        optional("locked", locked),
+        _opt("locked", locked),
         layer,
-        at,
+        globals()["at"](*at),
         attr,
         tstamp(),
         tedit(),
@@ -283,7 +300,7 @@ def footprint(
 def fp_text(
     text: str,
     *,
-    at: S = at(0, 0),
+    at: tuple[float, float] = (0, 0),
     type: str = "user",
     layer: str | S = layer("F.Cu"),
     hide: bool = False,
@@ -294,9 +311,9 @@ def fp_text(
         "fp_text",
         S(type),
         text,
-        at,
+        globals()["at"](*at),
         layer,
-        optional("hide", hide),
+        _opt("hide", hide),
         tstamp(),
     )
 
@@ -317,7 +334,7 @@ def fp_line(
         S("end", *end),
         layer,
         globals()["width"](width),
-        optional("locked", locked),
+        _opt("locked", locked),
         tstamp(),
     )
 
@@ -339,7 +356,7 @@ def fp_rect(
         S("end", *end),
         layer,
         globals()["width"](width),
-        optional("locked", locked),
+        _opt("locked", locked),
         globals()["fill"](fill),
         tstamp(),
     )
@@ -366,7 +383,7 @@ def fp_circle(
         S("end", *end),
         layer,
         globals()["width"](width),
-        optional("locked", locked),
+        _opt("locked", locked),
         globals()["fill"](fill),
         tstamp(),
     )
@@ -390,14 +407,14 @@ def fp_arc(
         S("end", *end),
         layer,
         globals()["width"](width),
-        optional("locked", locked),
+        _opt("locked", locked),
         tstamp(),
     )
 
 
 def fp_poly(
     *,
-    pts: S,
+    pts: list[tuple[float, float]],
     layer: str | S = layer("F.Cu"),
     width: float = 0.127,
     fill: bool = False,
@@ -407,18 +424,18 @@ def fp_poly(
 
     return S(
         "fp_poly",
-        pts,
+        globals()["pts"](*pts),
         layer,
         globals()["width"](width),
         globals()["fill"](fill),
-        optional("locked", locked),
+        _opt("locked", locked),
         tstamp(),
     )
 
 
 def fp_curve(
     *,
-    pts: S,
+    pts: list[tuple[float, float]],
     layer: str | S = layer("F.Cu"),
     width: float = 0.127,
     locked: bool = False,
@@ -427,10 +444,10 @@ def fp_curve(
 
     return S(
         "fp_curve",
-        pts,
+        globals()["pts"](*pts),
         layer,
         globals()["width"](width),
-        optional("locked", locked),
+        _opt("locked", locked),
         tstamp(),
     )
 
@@ -441,7 +458,7 @@ def pad(
     type: str,
     shape: str,
     layers: str,
-    at: S = at(0, 0),
+    at: tuple[float, float] = (0, 0),
     size: tuple[float, float],
     locked: bool = False,
     drill: S = None,
@@ -462,19 +479,19 @@ def pad(
         str(number),
         S(type),
         S(shape),
-        at,
-        optional("locked", locked),
+        globals()["at"](*at),
+        _opt("locked", locked),
         S("size", *size),
         drill,
         S("layers", S(layers)),
-        optional("roundrect_rratio", roundrect_rratio),
-        optional("chamfer_ratio", chamfer_ratio),
+        _opt("roundrect_rratio", roundrect_rratio),
+        _opt("chamfer_ratio", chamfer_ratio),
         chamfer,
         net,
-        optional("pinfunction", pinfunction),
-        optional("pintype", pintype),
-        optional("zone_connect", zone_connect),
-        optional("clearance", clearance),
+        _opt("pinfunction", pinfunction),
+        _opt("pintype", pintype),
+        _opt("zone_connect", zone_connect),
+        _opt("clearance", clearance),
         tstamp(),
     )
 
@@ -488,9 +505,7 @@ def drill(
     if offset is not None:
         offset = S("offset", *offset)
 
-    return S(
-        "drill", optional("oval", oval), diameter, width, optional("offset", offset)
-    )
+    return S("drill", _opt("oval", oval), diameter, width, _opt("offset", offset))
 
 
 def justify(
@@ -503,11 +518,11 @@ def justify(
 ):
     return S(
         "justify",
-        optional("left", left),
-        optional("right", right),
-        optional("top", top),
-        optional("bottom", bottom),
-        optional("mirror", mirror),
+        _opt("left", left),
+        _opt("right", right),
+        _opt("top", top),
+        _opt("bottom", bottom),
+        _opt("mirror", mirror),
     )
 
 
@@ -524,23 +539,23 @@ def effects(
         S(
             "font",
             S("size", *size),
-            optional("thickness", thickness),
-            optional("bold", bold),
-            optional("italic", italic),
+            _opt("thickness", thickness),
+            _opt("bold", bold),
+            _opt("italic", italic),
         ),
         justify,
     )
 
 
 def gr_text(
-    text: str, *, at: S = at(0, 0), layer: str | S = layer("F.Cu"), effects: S = None
+    text: str, *, at: tuple[float, float] = (0, 0), layer: str | S = layer("F.Cu"), effects: S = None
 ):
     layer = _layer_or_str(layer)
 
     return S(
         "gr_text",
         text,
-        at,
+        globals()["at"](*at),
         layer,
         effects,
         tstamp(),
@@ -631,7 +646,7 @@ def gr_arc(
 
 def gr_poly(
     *,
-    pts: Iterable,
+    pts: list[float, float],
     layer: str | S = layer("F.Cu"),
     width: float = 0.127,
     fill: bool = False,
@@ -650,7 +665,7 @@ def gr_poly(
 
 def gr_curve(
     *,
-    pts: S,
+    pts: list[float, float],
     layer: str | S = layer("F.Cu"),
     width: float = 0.127,
 ):
@@ -658,7 +673,7 @@ def gr_curve(
 
     return S(
         "gr_curve",
-        pts,
+        globals()["pts"](*pts),
         layer,
         globals()["width"](width),
         tstamp(),
@@ -677,13 +692,13 @@ def format(
 ):
     return S(
         "format",
-        optional("prefix", prefix),
-        optional("suffix", suffix),
+        _opt("prefix", prefix),
+        _opt("suffix", suffix),
         S("units", units),
         S("units_format", units_format),
         S("precision", precision),
-        optional("override_value", override_value),
-        optional("suppress_zeroes", suppress_zeroes),
+        _opt("override_value", override_value),
+        _opt("suppress_zeroes", suppress_zeroes),
     )
 
 
@@ -702,10 +717,10 @@ def style(
         S("thickness", thickness),
         S("arrow_length", arrow_length),
         S("text_position_mode", text_position_mode),
-        optional("extension_height", extension_height),
-        optional("text_frame", text_frame),
-        optional("extension_offset", extension_offset),
-        optional("keep_text_aligned", keep_text_aligned),
+        _opt("extension_height", extension_height),
+        _opt("text_frame", text_frame),
+        _opt("extension_offset", extension_offset),
+        _opt("keep_text_aligned", keep_text_aligned),
     )
 
 
@@ -727,14 +742,14 @@ def dimension(
 
     return S(
         "dimension",
-        optional("locked", locked),
+        _opt("locked", locked),
         S("type", S(type)),
         layer,
         tstamp(),
         pts(S("xy", *start), S("xy", *end)),
-        optional("height", height),
-        optional("orientation", orientation),
-        optional("leader_length", leader_length),
+        _opt("height", height),
+        _opt("orientation", orientation),
+        _opt("leader_length", leader_length),
         gr_text,
         format,
         style,
