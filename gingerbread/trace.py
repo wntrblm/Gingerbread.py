@@ -115,13 +115,14 @@ def _generate_fp_poly(poly: gdstk.Polygon, *, layer: str, dpmm: float) -> s.S:
     return s.fp_poly(pts=pts, layer=layer, width=0, fill=True)
 
 
-def generate_footprint(polys: list[gdstk.Polygon], *, dpi: float, layer: str) -> str:
+def generate_footprint(polys: list[gdstk.Polygon], *, dpi: float, layer: str, position: tuple[float, float] = (0, 0)) -> str:
     printv(f"Generating footprint, {dpi=}")
     dpmm = 25.4 / dpi
 
     return str(
         s.footprint(
             "Graphics",
+            at=s.at(*position),
             *(_generate_fp_poly(poly, layer=layer, dpmm=dpmm) for poly in polys),
             layer=layer,
         )
@@ -136,14 +137,15 @@ def trace(
     dpi: float = 2540,
     layer: str = "F.SilkS",
     center: bool = True,
-    bezier_resolution=0.25,
+    bezier_resolution: float = 0.25,
+    position: tuple[float, float] = (0, 0),
 ):
     image = _load_image(image_path)
     bitmap = _prepare_image(image, invert=invert, threshold=threshold)
     polys = _trace_bitmap_to_polys(
         bitmap, center=center, bezier_resolution=bezier_resolution
     )
-    fp = generate_footprint(polys=polys, dpi=dpi, layer=layer)
+    fp = generate_footprint(polys=polys, dpi=dpi, layer=layer, position=position)
     return fp
 
 
