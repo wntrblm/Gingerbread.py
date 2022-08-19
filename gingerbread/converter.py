@@ -4,6 +4,7 @@
 
 import concurrent.futures
 import os.path
+from tkinter.messagebox import askretrycancel
 
 import rich
 from rich import print
@@ -12,8 +13,7 @@ import rich.text
 import svgpathtools
 import svgpathtools.svg_to_paths
 
-from . import document, pcb, trace
-from ._utils import path_to_points
+from . import document, pcb, trace, geometry
 
 console = rich.get_console()
 
@@ -48,8 +48,12 @@ class Converter:
 
     def convert_outline(self):
         print("\n[bold]Converting board outline:")
+
+        # Pluck EdgeCuts elements from the SVG. There's a few cases here:
         edge_cuts_elem = list(self.doc.query_all("#EdgeCuts"))[0]
 
+        # First case: #EdgeCuts is a single shape element. In this case,
+        # make it into a list so it can be processed as the second case.
         if edge_cuts_elem.local_name in (
             "path",
             "rect",
@@ -58,67 +62,62 @@ class Converter:
             "ellipse",
         ):
             edge_cuts_elems = [edge_cuts_elem]
+
+        # Second case: #EdgeCuts is a group of shape elements. This is how
+        # we want to process things, so just get a list of all its children.
         elif edge_cuts_elem.local_name == "g":
-            edge_cuts_elems = list(self.doc.query_all("#EdgeCuts *"))
+            edge_cuts_elems = edge_cuts_elem.iter_children()
+
+        # Third case: #EdgeCuts is something else, so give up.
         else:
             raise ValueError(
                 f"Unable to convert {edge_cuts_elem.local_name}, unknown tag"
             )
 
-        # Convert all shapes to paths.
-        # Based on svgpathtools.svg2paths
-        paths: list[svgpathtools.Path] = []
+        # Convert all edge cut shapes to paths.
+        paths: list[float, tuple(float, float, float, float), svgpathtools.Path] = []
 
-        for elem in edge_cuts_elems:
-            path = None
-
-            match elem.local_name:
-                case "rect":
-                    path = svgpathtools.parse_path(svgpathtools.svg_to_paths.rect2pathd(elem))
-                case "polygon":
-                    path = svgpathtools.parse_path(svgpathtools.svg_to_paths.polygon2pathd(elem))
-                case "circle" | "ellipse":
-                    path = svgpathtools.parse_path(svgpathtools.svg_to_paths.ellipse2pathd(elem))
-                case "path":
-                    path = svgpathtools.parse_path(elem.get("d"))
-                case _:
-                    print(f"- [red] Not converting unknown element {elem.local_name}")
-
+        for elem, path in geometry.svg_elements_to_paths(edge_cuts_elems):
             if path is None:
+                print(f"- [red] Not converting unknown element {elem.local_name}")
                 continue
 
-            bbox = list(self.doc.iter_to_mm(path.bbox()))
-            paths.append(path)
-            print(f"- Converted {elem.local_name} with bounding box {bbox}")
+            brect = list(self.doc.iter_to_mm(geometry.bbox_to_rect(*path.bbox())))
+
+            # Note: using approximate area based on just the bounding box,
+            # since it isn't necessary for our purposes to know the area of the
+            # actual curve, just the area of its bbox.
+            area = round(abs(brect[2] * brect[3]))
+
+            paths.append((area, brect, path))
+
+            print(f"- Converted [cyan]{elem.local_name}[/cyan] with {len(path)} segments, bounding rect {brect}, and area of {area} mm^2")
 
         if not paths:
             raise ValueError("No paths found on EdgeCuts!")
 
         # Figure out the bounding box (path) of the design so that the offset
-        # can be determined. The path with the largest area is the board
-        # bounding box.
-        paths.sort(key=lambda p: abs(p.area()), reverse=True)
+        # can be determined. The path with the largest bounding box area is the
+        # board bounding box.
+        paths.sort(key=lambda p: p[0], reverse=True)
 
-        bounding_path = paths[0]
+        bounding_area, bounding_brect, bounding_path = paths[0]
 
-        pathbbox = bounding_path.bbox()
-        bbox = [
-            self.doc.to_mm(n)
-            for n in (pathbbox[0], pathbbox[2], pathbbox[1], pathbbox[3])
-        ]
-
-        if bbox[0] != 0 or bbox[1] != 0:
-            print("[yellow] Board outline bounding box does not start at 0, 0, found {bbox[:2]}")
-
-        self.bbox = (
-            self.pcb.page_width / 2 - bbox[2],
-            self.pcb.page_height / 2 - bbox[3] / 2,
-            bbox[2],
-            bbox[3],
-        )
+        print()
+        if bounding_brect[0] != 0 or bounding_brect[1] != 0:
+            print(
+                f"[yellow]Board outline bounding box does not start at 0, 0, found {bounding_brect}"
+            )
 
         console.print(
-            f"\n[green]Overall board size is [cyan][bold]{bbox[2]:.2f} mm x {bbox[3]:.2f} mm[/bold]."
+            f"[green]Overall board size is [cyan][bold]{bounding_brect[2]:.2f} mm x {bounding_brect[3]:.2f} mm[/bold]."
+        )
+
+        self.bbox = (
+            self.pcb.page_width / 2 - bounding_brect[2],
+            self.pcb.page_height / 2 - bounding_brect[3] / 2,
+            bounding_brect[2],
+            bounding_brect[3],
         )
 
         # Now that the bounding box and offset are known, we can start adding
@@ -131,8 +130,8 @@ class Converter:
         self.pcb.add_vertical_measurement(0, 0, 0, self.bbox[3])
 
         # Add all paths as polygons
-        for path in paths:
-            points = self.doc.points_to_mm(path_to_points(path))
+        for _, _, path in paths:
+            points = self.doc.points_to_mm(geometry.path_to_points(path))
             self.pcb.add_poly(points, layer="Edge.Cuts", width=0.5, fill=False)
 
         return True
@@ -141,9 +140,6 @@ class Converter:
         console.print("\n[bold]Converting drills:")
 
         drill_elms = list(self.doc.query_all("#Drill *"))
-
-        if not drill_elms:
-            console.print("[yellow]No drills found")
 
         count = 0
         for el in drill_elms:
@@ -160,7 +156,10 @@ class Converter:
             console.print(f"- X: {x:.1f} mm, Y: {y:.1f} mm, D: {d:.2f} mm")
             count += 1
 
-        console.print(f"\n[green]Converted [cyan]{count}[/cyan] drills")
+        if count:
+            console.print(f"\n[green]Converted [cyan]{count}[/cyan] drills")
+        else:
+            console.print("\n[yellow]No drills found")
 
     def convert_layers(self):
         console.print("\n[bold]Converting graphic layers:")
@@ -172,7 +171,7 @@ class Converter:
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 futures = [
                     executor.submit(
-                        convert_layer, self.doc, self.workdir, self.pcb.offset, src, dst
+                        convert_layer_thread, self.doc, self.workdir, self.pcb.offset, src, dst
                     )
                     for src, dst in LAYERS.items()
                 ]
@@ -200,7 +199,7 @@ class Converter:
         console.print()
 
 
-def convert_layer(doc, tmpdir, position, src_layer_name, dst_layer_name):
+def convert_layer_thread(doc, tmpdir, position, src_layer_name, dst_layer_name):
     svg_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.svg")
     png_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.png")
     mod_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.kicad_mod")

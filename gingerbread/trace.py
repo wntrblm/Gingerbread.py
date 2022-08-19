@@ -23,7 +23,7 @@ import rich
 
 from . import sexpr as s
 from ._print import set_verbose, printv
-from ._utils import bezier_to_points
+from .geometry import bezier_to_points
 
 
 def _path_to_poly_pts(
