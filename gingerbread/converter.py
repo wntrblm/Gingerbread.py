@@ -11,7 +11,7 @@ import rich.text
 import svgpathtools
 
 from . import pcbnew, trace
-from ._utils import bezier_to_points
+from ._utils import path_to_points
 
 console = rich.get_console()
 
@@ -30,8 +30,8 @@ class Converter:
         self.doc = doc
         self.pcb = pcb
         self.bbox = (0, 0, 0, 0)
-        self._tmpdir = os.path.join(".", ".cache")
-        os.makedirs(self._tmpdir, exist_ok=True)
+        self.workdir = os.path.join(".", ".cache")
+        os.makedirs(self.workdir, exist_ok=True)
 
     def convert(self, drills=True, layers=True):
         self.convert_outline()
@@ -49,7 +49,9 @@ class Converter:
 
     def _convert_outline_rect(self):
         # Simplest case - the outline is just a rectangle.
-        rects = list(self.doc.query_all("#EdgeCuts rect")) + list(self.doc.query_all("rect#EdgeCuts"))
+        rects = list(self.doc.query_all("#EdgeCuts rect")) + list(
+            self.doc.query_all("rect#EdgeCuts")
+        )
 
         if not rects:
             return None
@@ -82,7 +84,6 @@ class Converter:
         # Now that the PCB offset is known, we can start building the PCB.
         self.pcb.bbox = self.bbox
         self.pcb.offset = self.bbox[:2]
-        self.pcb.start()
         self.pcb.add_horizontal_measurement(0, 0, self.bbox[2], 0)
         self.pcb.add_vertical_measurement(0, 0, 0, self.bbox[3])
 
@@ -92,7 +93,9 @@ class Converter:
             y = self.doc.to_mm(rect.get("screen_y"), 1)
             width = self.doc.to_mm(rect.get("screen_width"), 1)
             height = self.doc.to_mm(rect.get("screen_height"), 1)
-            self.pcb.add_outline(x, y, width, height)
+            self.pcb.add_rect(
+                x, y, width, height, layer="Edge.Cuts", width=0.5, fill=False
+            )
             console.print(
                 f"- [green]X: {x:.1f} mm, Y: {y:.1f} mm, W: {width:.1f} mm H: {height:.1f} mm"
             )
@@ -135,35 +138,11 @@ class Converter:
         # Now that the PCB offset is known, we can start building the PCB.
         self.pcb.bbox = self.bbox
         self.pcb.offset = self.bbox[:2]
-        self.pcb.start()
         self.pcb.add_horizontal_measurement(0, 0, self.bbox[2], 0)
         self.pcb.add_vertical_measurement(0, 0, 0, self.bbox[3])
 
-        points = []
-
-        for seg in path:
-            if isinstance(seg, svgpathtools.Line):
-                points.append((self.doc.to_mm(seg.start.real, 2), self.doc.to_mm(seg.start.imag, 2)))
-                points.append((self.doc.to_mm(seg.end.real, 2), self.doc.to_mm(seg.end.imag, 2)))
-
-            elif isinstance(seg, svgpathtools.CubicBezier):
-                for point in bezier_to_points(
-                    (seg.start.real, seg.start.imag),
-                    (seg.control1.real, seg.control1.imag),
-                    (seg.control2.real, seg.control2.imag),
-                    (seg.end.real, seg.end.imag),
-                    delta=1
-                ):
-                    points.append((self.doc.to_mm(point[0]), self.doc.to_mm(point[1])))
-
-            elif seg is None:
-                print("Hmm, there was an empty segment?")
-                pass
-
-            else:
-                raise ValueError(f"Can't convert path segment {seg}.")
-
-        self.pcb.add_poly(points, layer="Edge.Cuts")
+        points = self.doc.points_to_mm(path_to_points(path))
+        self.pcb.add_poly(points, layer="Edge.Cuts", width=0.5)
 
         return True
 
@@ -195,16 +174,20 @@ class Converter:
         with rich.live.Live(rich.text.Text.from_markup(status)) as live_status:
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 futures = [
-                    executor.submit(convert_layer, self.doc, self._tmpdir, src, dst)
+                    executor.submit(
+                        convert_layer, self.doc, self.workdir, self.pcb.offset, src, dst
+                    )
                     for src, dst in LAYERS.items()
                 ]
 
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
-                    layer_name, mod, cached = result
+                    layer_name, footprint, cached = result
 
-                    if mod:
-                        self.pcb.add_mod(mod, 0, 0)
+                    if footprint:
+                        with open(footprint, "r") as fh:
+                            self.pcb.add_literal(fh.read())
+
                         if cached:
                             results[layer_name] = "[blue]cached[/blue]"
                         else:
@@ -224,7 +207,7 @@ class Converter:
         return self.bbox[0] + (self.bbox[2] / 2), self.bbox[1] + (self.bbox[3] / 2)
 
 
-def convert_layer(doc, tmpdir, src_layer_name, dst_layer_name):
+def convert_layer(doc, tmpdir, position, src_layer_name, dst_layer_name):
     svg_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.svg")
     png_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.png")
     mod_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.kicad_mod")
@@ -254,7 +237,9 @@ def convert_layer(doc, tmpdir, src_layer_name, dst_layer_name):
     image = trace._load_image(png_filename)
     bitmap = trace._prepare_image(image, invert=False, threshold=127)
     polys = trace._trace_bitmap_to_polys(bitmap, center=False)
-    fp = trace.generate_footprint(polys=polys, dpi=doc.dpi, layer=dst_layer_name)
+    fp = trace.generate_footprint(
+        polys=polys, dpi=doc.dpi, layer=dst_layer_name, position=position
+    )
 
     with open(mod_filename, "w") as fh:
         fh.write(fp)
