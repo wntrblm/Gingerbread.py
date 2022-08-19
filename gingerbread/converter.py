@@ -97,7 +97,7 @@ class Converter:
         # Figure out the bounding box (path) of the design so that the offset
         # can be determined. The path with the largest area is the board
         # bounding box.
-        paths.sort(key=lambda p: abs(p.area()))
+        paths.sort(key=lambda p: abs(p.area()), reverse=True)
 
         bounding_path = paths[0]
 
