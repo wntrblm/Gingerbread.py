@@ -4,7 +4,6 @@
 
 import concurrent.futures
 import os.path
-from tkinter.messagebox import askretrycancel
 
 import rich
 from rich import print
