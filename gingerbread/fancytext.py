@@ -331,6 +331,7 @@ def generate(
     dpi=2540,
     outline_stroke_mm=0,
     outline_fill=False,
+    position=(0, 0),
 ):
     dpmm = dpi / 25.4
     flip = layer.startswith("B.")
@@ -391,7 +392,7 @@ def generate(
 
     printv("Tracing image")
     fp = trace.trace(
-        png_path, invert=False, threshold=127, dpi=dpi, layer=layer, center=True
+        png_path, invert=False, threshold=127, dpi=dpi, layer=layer, center=True, position=position
     )
 
     return fp
