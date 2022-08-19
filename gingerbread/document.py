@@ -60,7 +60,7 @@ def vector_diff(x1, y1, x2, y2):
 
 
 def vector_length(x, y):
-    return math.sqrt((x ** 2 + y ** 2))
+    return math.sqrt((x**2 + y**2))
 
 
 class SVGDocument:
@@ -87,6 +87,14 @@ class SVGDocument:
         if not isinstance(val, float):
             val = float(val)
         return round(val * self.dpmm, places)
+
+    def iter_to_mm(self, vals, places=2):
+        for val in vals:
+            yield self.to_mm(val)
+
+    def points_to_mm(self, pts, places=2):
+        for pt in pts:
+            yield (self.to_mm(pt[0]), self.to_mm(pt[1]))
 
     def query_all(self, selector):
         for item in self.csstree.query_all(selector):
