@@ -6,13 +6,13 @@ import concurrent.futures
 import os.path
 
 import rich
-from rich import print
 import rich.live
 import rich.text
 import svgpathtools
 import svgpathtools.svg_to_paths
 
 from . import document, pcb, trace, geometry
+from ._print import set_verbose, print, printv
 
 console = rich.get_console()
 
@@ -46,7 +46,7 @@ class Converter:
             self.convert_layers()
 
     def convert_outline(self):
-        print("\n[bold]Converting board outline:")
+        print("[bold]Converting board outline")
 
         # Pluck EdgeCuts elements from the SVG. There's a few cases here:
         edge_cuts_elem = list(self.doc.query_all("#EdgeCuts"))[0]
@@ -90,7 +90,9 @@ class Converter:
 
             paths.append((area, brect, path))
 
-            print(f"- Converted [cyan]{elem.local_name}[/cyan] with {len(path)} segments, bounding rect {brect}, and area of {area} mm^2")
+            printv(
+                f"- Converted [cyan]{elem.local_name}[/cyan] with {len(path)} segments, bounding rect {brect}, and area of {area:.2f} mm²"
+            )
 
         if not paths:
             raise ValueError("No paths found on EdgeCuts!")
@@ -102,14 +104,13 @@ class Converter:
 
         bounding_area, bounding_brect, bounding_path = paths[0]
 
-        print()
         if bounding_brect[0] != 0 or bounding_brect[1] != 0:
             print(
-                f"[yellow]Board outline bounding box does not start at 0, 0, found {bounding_brect}"
+                f"[yellow]Warning[/yellow]: board outline bounding box does not start at 0, 0, found {bounding_brect}"
             )
 
-        console.print(
-            f"[green]Overall board size is [cyan][bold]{bounding_brect[2]:.2f} mm x {bounding_brect[3]:.2f} mm[/bold]."
+        print(
+            f"[green]Outline converted[/green]: overall board size is [cyan][bold]{bounding_brect[2]:.2f} mm x {bounding_brect[3]:.2f} mm[/bold][/cyan] ({bounding_area:.2f} mm²)."
         )
 
         self.bbox = (
@@ -136,14 +137,16 @@ class Converter:
         return True
 
     def convert_drills(self):
-        console.print("\n[bold]Converting drills:")
+        print("[bold]Converting drills")
 
         drill_elms = list(self.doc.query_all("#Drill *"))
 
         count = 0
         for el in drill_elms:
             if el.local_name != "circle":
-                print(f"- [red] Non-circular element not converted: {el}")
+                print(
+                    f"- [yellow]Warning:[/yellow] non-circular element {el.local_name} not converted."
+                )
                 continue
 
             x = self.doc.to_mm(el.get("screen_cx"))
@@ -152,16 +155,16 @@ class Converter:
 
             self.pcb.add_drill(x, y, d)
 
-            console.print(f"- X: {x:.1f} mm, Y: {y:.1f} mm, D: {d:.2f} mm")
+            printv(f"- Drill @ ({x:.2f}, {y:.2f}) mm, ⌀ {d:.2f} mm")
             count += 1
 
         if count:
-            console.print(f"\n[green]Converted [cyan]{count}[/cyan] drills")
+            print(f"[green]Drills converted[/green]: [cyan]{count}[/cyan]")
         else:
-            console.print("\n[yellow]No drills found")
+            print("[yellow]No drills found")
 
     def convert_layers(self):
-        console.print("\n[bold]Converting graphic layers:")
+        print("[bold]Converting graphic layers")
         results = {k: "..." for k in LAYERS.keys()}
 
         status = "\n".join(f"- {name}: {status}" for name, status in results.items())
@@ -170,7 +173,12 @@ class Converter:
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 futures = [
                     executor.submit(
-                        convert_layer_thread, self.doc, self.workdir, self.pcb.offset, src, dst
+                        convert_layer_thread,
+                        self.doc,
+                        self.workdir,
+                        self.pcb.offset,
+                        src,
+                        dst,
                     )
                     for src, dst in LAYERS.items()
                 ]
