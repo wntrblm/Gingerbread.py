@@ -21,9 +21,9 @@ import potracecffi
 import pyvips
 import rich
 
-from . import sexpr as s
+from . import _sexpr as s
 from ._print import set_verbose, printv
-from .geometry import bezier_to_points
+from ._geometry import bezier_to_points
 
 
 def _path_to_poly_pts(

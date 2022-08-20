@@ -15,7 +15,7 @@ import rich.text
 import svgpathtools
 import svgpathtools.svg_to_paths
 
-from . import document, pcb, trace, geometry
+from . import _document, _geometry, pcb, trace
 from ._print import set_verbose, print, printv
 from ._utils import default_param_value
 
@@ -36,7 +36,7 @@ class ConversionError(RuntimeError):
 
 
 class Converter:
-    def __init__(self, doc: document.SVGDocument, pcb: pcb.PCB):
+    def __init__(self, doc: _document.SVGDocument, pcb: pcb.PCB):
         self.doc = doc
         self.pcb = pcb
         self.bbox = (0, 0, 0, 0)
@@ -94,12 +94,12 @@ class Converter:
         # Convert all edge cut shapes to paths.
         paths: list[float, tuple(float, float, float, float), svgpathtools.Path] = []
 
-        for elem, path in geometry.svg_elements_to_paths(edge_cuts_elems):
+        for elem, path in _geometry.svg_elements_to_paths(edge_cuts_elems):
             if path is None:
                 print(f"- [red] Not converting unknown element {elem.local_name}")
                 continue
 
-            brect = list(self.doc.iter_to_mm(geometry.bbox_to_rect(*path.bbox())))
+            brect = list(self.doc.iter_to_mm(_geometry.bbox_to_rect(*path.bbox())))
 
             # Note: using approximate area based on just the bounding box,
             # since it isn't necessary for our purposes to know the area of the
@@ -149,7 +149,7 @@ class Converter:
 
         # Add all paths as polygons
         for _, _, path in paths:
-            points = self.doc.points_to_mm(geometry.path_to_points(path))
+            points = self.doc.points_to_mm(_geometry.path_to_points(path))
             self.pcb.add_poly(points, layer="Edge.Cuts", width=0.5, fill=False)
 
         return True
@@ -280,7 +280,7 @@ def convert(
     drills: bool = True,
     layers: bool = True,
 ):
-    doc = document.SVGDocument(source, dpi=dpi)
+    doc = _document.SVGDocument(source, dpi=dpi)
     pcb_ = pcb.PCB(
         title=title,
         rev=rev,

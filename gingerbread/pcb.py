@@ -8,7 +8,7 @@ import io
 import datetime
 from os import PathLike
 
-from . import sexpr as s
+from . import _sexpr as s
 
 
 class PCB:
