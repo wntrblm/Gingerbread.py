@@ -29,16 +29,16 @@ def svg_elements_to_paths(
     for elem in svg_elements:
         match elem.local_name:
             case "rect":
-                yield svgpathtools.parse_path(
-                    elem, svgpathtools.svg_to_paths.rect2pathd(elem)
+                yield elem, svgpathtools.parse_path(
+                    svgpathtools.svg_to_paths.rect2pathd(elem)
                 )
             case "polygon":
-                yield svgpathtools.parse_path(
-                    elem, svgpathtools.svg_to_paths.polygon2pathd(elem)
+                yield elem, svgpathtools.parse_path(
+                    svgpathtools.svg_to_paths.polygon2pathd(elem)
                 )
             case "circle" | "ellipse":
-                yield svgpathtools.parse_path(
-                    elem, svgpathtools.svg_to_paths.ellipse2pathd(elem)
+                yield elem, svgpathtools.parse_path(
+                    svgpathtools.svg_to_paths.ellipse2pathd(elem)
                 )
             case "path":
                 yield elem, svgpathtools.parse_path(elem.get("d"))
