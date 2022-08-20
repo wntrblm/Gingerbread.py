@@ -6,6 +6,7 @@
 
 import io
 import datetime
+from os import PathLike
 
 from . import sexpr as s
 
@@ -17,18 +18,28 @@ class PCB:
     page_width = 279.4
     page_height = 215.9
 
-    def __init__(self, title, rev="v1"):
+    def __init__(
+        self,
+        title: str,
+        rev: str = "v1",
+        date: str = datetime.date.today().strftime("%Y-%m-%d"),
+        company: str = "",
+        comment1: str = "",
+        comment2: str = "",
+        comment3: str = "",
+        comment4: str = "",
+    ):
         self._finished = False
         self.offset = (0, 0)
         self.text = io.StringIO()
         self.title = title
         self.rev = rev
-        self.date = datetime.date.today().strftime("%Y-%m-%d")
-        self.company = "Winterbloom"
-        self.comment1 = "Alethea Flowers"
-        self.comment2 = "CC BY-NC-ND 4.0"
-        self.comment3 = ""
-        self.comment4 = ""
+        self.date = date
+        self.company = company
+        self.comment1 = comment1
+        self.comment2 = comment2
+        self.comment3 = comment3
+        self.comment4 = comment4
         self.bbox = (0, 0, 0, 0)
         self.items = []
 
@@ -36,7 +47,7 @@ class PCB:
         self.items.append(
             s.gr_line(
                 start=(x1 + self.offset[0], y1 + self.offset[1]),
-                end=(x1 + self.offset[0], y1 + self.offset[1]),
+                end=(x2 + self.offset[0], y2 + self.offset[1]),
                 layer=layer,
                 width=width,
             )
@@ -60,7 +71,17 @@ class PCB:
             )
         )
 
-    def add_rect(self, x, y, w, h, *, layer: str = "F.SilkS", width: float = 0.1, fill: bool = True):
+    def add_rect(
+        self,
+        x,
+        y,
+        w,
+        h,
+        *,
+        layer: str = "F.SilkS",
+        width: float = 0.1,
+        fill: bool = True,
+    ):
         self.items.append(
             s.gr_rect(
                 start=(x + self.offset[0], y + self.offset[1]),
@@ -85,7 +106,7 @@ class PCB:
                     clearance=0.1,
                     zone_connect=0,
                 ),
-                at=(self.offset[0] + x, self.offset[1] + y)
+                at=(self.offset[0] + x, self.offset[1] + y),
             )
         )
 
@@ -139,7 +160,7 @@ class PCB:
                     effects=s.effects(
                         size=(text_size, text_size),
                         thickness=text_thickness,
-                    )
+                    ),
                 ),
                 format=s.format(
                     units=2,
@@ -150,7 +171,7 @@ class PCB:
                 style=s.style(
                     thickness=text_thickness,
                     keep_text_aligned=True,
-                )
+                ),
             )
         )
 
@@ -185,7 +206,7 @@ class PCB:
                     effects=s.effects(
                         size=(text_size, text_size),
                         thickness=text_thickness,
-                    )
+                    ),
                 ),
                 format=s.format(
                     units=2,
@@ -195,14 +216,14 @@ class PCB:
                 style=s.style(
                     thickness=text_thickness,
                     keep_text_aligned=True,
-                )
+                ),
             )
         )
 
     def add_literal(self, val: str):
         self.items.append(s.L(val))
 
-    def write(self, filename):
+    def write(self, filename_or_io):
         pcb = s.kicad_pcb(
             s.general(thickness=1.6),
             s.paper(size="USLetter"),
@@ -238,5 +259,9 @@ class PCB:
             *self.items,
         )
 
-        with open(filename, "w") as fh:
-            pcb.write(fh)
+        if isinstance(filename_or_io, PathLike):
+            with open(filename_or_io, "w") as fh:
+                pcb.write(fh)
+
+        else:
+            pcb.write(filename_or_io)
