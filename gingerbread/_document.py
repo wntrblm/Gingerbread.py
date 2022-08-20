@@ -2,15 +2,13 @@
 # Published under the standard MIT License.
 # Full text available at: https://opensource.org/licenses/MIT
 
-import math
-import re
-
 import cssselect2
 from defusedxml import ElementTree
 
-from ._cffi_deps import cairocffi, cairosvg
+from ._cffi_deps import cairosvg
 
 
+# Monkeypatches cssselect2.ElementWrapper to add get and set methods.
 def _el_get(self, key, default=None):
     return self.etree_element.get(key, default)
 
@@ -21,46 +19,6 @@ def _el_set(self, key, val):
 
 setattr(cssselect2.ElementWrapper, "get", _el_get)
 setattr(cssselect2.ElementWrapper, "set", _el_set)
-
-
-def _get_matrix_from_transform(transform_string):
-    # Adapted from cairosvg
-    matrix = cairocffi.Matrix()
-    if not transform_string:
-        return matrix
-
-    transformations = re.findall(r"(\w+) ?\( ?(.*?) ?\)", transform_string)
-
-    for transformation_type, transformation in transformations:
-        values = [float(value) for value in transformation.split(",")]
-        if transformation_type == "matrix":
-            matrix = cairocffi.Matrix(*values).multiply(matrix)
-        else:
-            raise ValueError("Unexpected transform type", transformation_type)
-
-    return matrix
-
-
-def _calculate_total_transform(cssel):
-    matrix = cairocffi.Matrix()
-    for ancestor in list(reversed(list(cssel.iter_ancestors()))) + [cssel]:
-        matrix = (
-            _get_matrix_from_transform(ancestor.etree_element.get("transform")) * matrix
-        )
-    return matrix
-
-
-def recolor(csstree, parent_id, replacement_style):
-    for el in csstree.query_all(f"#{parent_id} *"):
-        el.etree_element.set("style", replacement_style)
-
-
-def vector_diff(x1, y1, x2, y2):
-    return (x2 - x1), (y2 - y1)
-
-
-def vector_length(x, y):
-    return math.sqrt((x**2 + y**2))
 
 
 class SVGDocument:
@@ -90,59 +48,14 @@ class SVGDocument:
 
     def iter_to_mm(self, vals, places=2):
         for val in vals:
-            yield self.to_mm(val)
+            yield self.to_mm(val, places=places)
 
     def points_to_mm(self, pts, places=2):
         for pt in pts:
-            yield (self.to_mm(pt[0]), self.to_mm(pt[1]))
+            yield (self.to_mm(pt[0], places=places), self.to_mm(pt[1], places=places))
 
     def query_all(self, selector):
-        for item in self.csstree.query_all(selector):
-            yield self._wrap(item)
-
-    def _wrap(self, cssel):
-        cssel.matrix = self.transform(cssel)
-        self._localize(cssel)
-        return cssel
-
-    def _localize(self, el):
-        if "circle" in el.etree_element.tag:
-            local_r = float(el.get("r"))
-            local_cx = float(el.get("cx"))
-            local_cy = float(el.get("cy"))
-
-            screen_x, screen_y = el.matrix.transform_point(local_cx, local_cy)
-            screen_x2, screen_y2 = el.matrix.transform_point(
-                local_cx + local_r, local_cy
-            )
-            screen_r = vector_length(
-                *vector_diff(screen_x, screen_y, screen_x2, screen_y2)
-            )
-
-            el.set("screen_cx", str(screen_x))
-            el.set("screen_cy", str(screen_y))
-            el.set("screen_r", str(screen_r))
-            return
-
-        if "rect" in el.etree_element.tag:
-            local_x = float(el.get("x"))
-            local_y = float(el.get("y"))
-            local_width = float(el.get("width"))
-            local_height = float(el.get("height"))
-
-            screen_x, screen_y = el.matrix.transform_point(local_x, local_y)
-            screen_x2, screen_y2 = el.matrix.transform_point(
-                local_x + local_width, local_y + local_height
-            )
-            screen_width, screen_height = vector_diff(
-                screen_x, screen_y, screen_x2, screen_y2
-            )
-
-            el.set("screen_x", str(screen_x))
-            el.set("screen_y", str(screen_y))
-            el.set("screen_width", str(screen_width))
-            el.set("screen_height", str(screen_height))
-            return
+        yield from self.csstree.query_all(selector)
 
     def remove_layers(self, keep=None):
         keep = keep or []
@@ -169,11 +82,9 @@ class SVGDocument:
 
         return found
 
-    def transform(self, cssel):
-        return _calculate_total_transform(cssel)
-
     def recolor(self, id, replacement_style="fill:black;"):
-        recolor(self.csstree, id, replacement_style)
+        for el in self.csstree.query_all(f"#{id} *"):
+            el.etree_element.set("style", replacement_style)
 
     def tobytestring(self):
         return ElementTree.tostring(self.etree)

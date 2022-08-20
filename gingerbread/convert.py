@@ -91,7 +91,8 @@ class Converter:
                 f"Unable to convert {edge_cuts_layer.local_name}, unknown tag"
             )
 
-        # Convert all edge cut shapes to paths.
+        # Convert all edge cut shapes to paths. The items in the tuple are
+        # area, brect, and the parsed path.
         paths: list[float, tuple(float, float, float, float), svgpathtools.Path] = []
 
         for elem, path in _geometry.svg_elements_to_paths(edge_cuts_elems):
@@ -167,9 +168,9 @@ class Converter:
                 )
                 continue
 
-            x = self.doc.to_mm(el.get("screen_cx"))
-            y = self.doc.to_mm(el.get("screen_cy"))
-            d = self.doc.to_mm(float(el.get("screen_r")) * 2)
+            x = self.doc.to_mm(el.get("cx"))
+            y = self.doc.to_mm(el.get("cy"))
+            d = self.doc.to_mm(float(el.get("r")) * 2)
 
             self.pcb.add_drill(x, y, d)
 
@@ -220,8 +221,6 @@ class Converter:
                         f"- {name}: {status}" for name, status in results.items()
                     )
                     live_status.update(rich.text.Text.from_markup(status))
-
-        console.print()
 
 
 def _convert_layer_thread(doc, tmpdir, position, src_layer_name, dst_layer_name):
