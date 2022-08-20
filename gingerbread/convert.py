@@ -2,8 +2,12 @@
 # Published under the standard MIT License.
 # Full text available at: https://opensource.org/licenses/MIT
 
+import argparse
 import concurrent.futures
+import datetime
 import os.path
+import pathlib
+import sys
 
 import rich
 import rich.live
@@ -13,6 +17,7 @@ import svgpathtools.svg_to_paths
 
 from . import document, pcb, trace, geometry
 from ._print import set_verbose, print, printv
+from ._utils import default_param_value
 
 console = rich.get_console()
 
@@ -24,6 +29,10 @@ LAYERS = {
     "FMask": "F.Mask",
     "BMask": "B.Mask",
 }
+
+
+class ConversionError(RuntimeError):
+    pass
 
 
 class Converter:
@@ -38,8 +47,9 @@ class Converter:
     def centroid(self):
         return self.bbox[0] + (self.bbox[2] / 2), self.bbox[1] + (self.bbox[3] / 2)
 
-    def convert(self, drills: bool = True, layers: bool = True):
-        self.convert_outline()
+    def convert(self, outline: bool = True, drills: bool = True, layers: bool = True):
+        if outline:
+            self.convert_outline()
         if drills:
             self.convert_drills()
         if layers:
@@ -48,29 +58,37 @@ class Converter:
     def convert_outline(self):
         print("[bold]Converting board outline")
 
-        # Pluck EdgeCuts elements from the SVG. There's a few cases here:
-        edge_cuts_elem = list(self.doc.query_all("#EdgeCuts"))[0]
+        # Find the edgecuts layer
+        edge_cuts_layer = list(self.doc.query_all("#EdgeCuts"))
 
+        if len(edge_cuts_layer) == 0:
+            raise ConversionError("EdgeCuts layer not found")
+        if len(edge_cuts_layer) > 1:
+            raise ConversionError("Multiple elements named EdgeCuts found")
+
+        edge_cuts_layer = edge_cuts_layer[0]
+
+        # Pluck EdgeCuts elements from the SVG. There's a few cases here:
         # First case: #EdgeCuts is a single shape element. In this case,
         # make it into a list so it can be processed as the second case.
-        if edge_cuts_elem.local_name in (
+        if edge_cuts_layer.local_name in (
             "path",
             "rect",
             "circle",
             "polygon",
             "ellipse",
         ):
-            edge_cuts_elems = [edge_cuts_elem]
+            edge_cuts_elems = [edge_cuts_layer]
 
         # Second case: #EdgeCuts is a group of shape elements. This is how
         # we want to process things, so just get a list of all its children.
-        elif edge_cuts_elem.local_name == "g":
-            edge_cuts_elems = edge_cuts_elem.iter_children()
+        elif edge_cuts_layer.local_name == "g":
+            edge_cuts_elems = edge_cuts_layer.iter_children()
 
         # Third case: #EdgeCuts is something else, so give up.
         else:
-            raise ValueError(
-                f"Unable to convert {edge_cuts_elem.local_name}, unknown tag"
+            raise ConversionError(
+                f"Unable to convert {edge_cuts_layer.local_name}, unknown tag"
             )
 
         # Convert all edge cut shapes to paths.
@@ -95,7 +113,7 @@ class Converter:
             )
 
         if not paths:
-            raise ValueError("No paths found on EdgeCuts!")
+            raise ConversionError("No paths found on EdgeCuts!")
 
         # Figure out the bounding box (path) of the design so that the offset
         # can be determined. The path with the largest bounding box area is the
@@ -173,7 +191,7 @@ class Converter:
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 futures = [
                     executor.submit(
-                        convert_layer_thread,
+                        _convert_layer_thread,
                         self.doc,
                         self.workdir,
                         self.pcb.offset,
@@ -206,7 +224,7 @@ class Converter:
         console.print()
 
 
-def convert_layer_thread(doc, tmpdir, position, src_layer_name, dst_layer_name):
+def _convert_layer_thread(doc, tmpdir, position, src_layer_name, dst_layer_name):
     svg_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.svg")
     png_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.png")
     mod_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.kicad_mod")
@@ -244,3 +262,115 @@ def convert_layer_thread(doc, tmpdir, position, src_layer_name, dst_layer_name):
         fh.write(fp)
 
     return src_layer_name, mod_filename, False
+
+
+def convert(
+    *,
+    source: os.PathLike,
+    title: str = "",
+    rev: str = "v1",
+    date: str = datetime.date.today().strftime("%Y-%m-%d"),
+    company: str = "",
+    comment1: str = "",
+    comment2: str = "",
+    comment3: str = "",
+    comment4: str = "",
+    dpi: float = 2540,
+    outline: bool = True,
+    drills: bool = True,
+    layers: bool = True,
+):
+    doc = document.SVGDocument(source, dpi=dpi)
+    pcb_ = pcb.PCB(
+        title=title,
+        rev=rev,
+        date=date,
+        company=company,
+        comment1=comment1,
+        comment2=comment2,
+        comment3=comment3,
+        comment4=comment4,
+    )
+
+    convert = Converter(doc, pcb_)
+    convert.convert(outline=outline, drills=drills, layers=layers)
+
+    return pcb_
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        "convert", formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument("source", type=pathlib.Path)
+    parser.add_argument("dest", nargs="?", type=pathlib.Path, default=None)
+    parser.add_argument("-v", "--verbose", action="store_true")
+
+    parser.add_argument("--title", default=default_param_value(convert, "title"))
+    parser.add_argument("--rev", default=default_param_value(convert, "rev"))
+    parser.add_argument("--date", default=default_param_value(convert, "date"))
+    parser.add_argument(
+        "--company", type=str, default=default_param_value(convert, "company")
+    )
+    parser.add_argument(
+        "--comment1", type=str, default=default_param_value(convert, "comment1")
+    )
+    parser.add_argument(
+        "--comment2", type=str, default=default_param_value(convert, "comment2")
+    )
+    parser.add_argument(
+        "--comment3", type=str, default=default_param_value(convert, "comment3")
+    )
+    parser.add_argument(
+        "--comment4", type=str, default=default_param_value(convert, "comment4")
+    )
+    parser.add_argument(
+        "--dpi", type=float, default=default_param_value(convert, "dpi")
+    )
+    parser.add_argument(
+        "--outline",
+        action=argparse.BooleanOptionalAction,
+        default=default_param_value(convert, "outline"),
+    )
+    parser.add_argument(
+        "--drills",
+        action=argparse.BooleanOptionalAction,
+        default=default_param_value(convert, "drills"),
+    )
+    parser.add_argument(
+        "--layers",
+        action=argparse.BooleanOptionalAction,
+        default=default_param_value(convert, "drills"),
+    )
+
+    args = parser.parse_args()
+
+    if args.dest is None:
+        args.dest = args.source.with_suffix(".kicad_pcb")
+
+    set_verbose(args.verbose)
+
+    pcb_ = convert(
+        source=args.source,
+        title=args.title,
+        rev=args.rev,
+        date=args.date,
+        company=args.company,
+        comment1=args.comment1,
+        comment2=args.comment2,
+        comment3=args.comment3,
+        comment4=args.comment4,
+        dpi=args.dpi,
+        outline=args.outline,
+        drills=args.drills,
+        layers=args.layers,
+    )
+
+    with open(args.dest, "w") as fh:
+        pcb_.write(fh)
+
+    rich.print(f"[green]Written to {args.dest} :purple_heart:", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
