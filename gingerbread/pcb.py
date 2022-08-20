@@ -259,7 +259,7 @@ class PCB:
             *self.items,
         )
 
-        if isinstance(filename_or_io, PathLike):
+        if isinstance(filename_or_io, (str, PathLike)):
             with open(filename_or_io, "w") as fh:
                 pcb.write(fh)
 
