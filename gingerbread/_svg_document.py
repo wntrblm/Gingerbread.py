@@ -86,16 +86,17 @@ class SVGDocument:
             self.etree.remove(node)
             count += 1
 
-        printv(f"Removed {count} layers, keeping {', '.join(keep)}")
+        printv(f"Removed {count} layers, keeping {keep}")
 
         return keep_found
 
-    def recolor(self, id, replacement_style="fill:black;"):
+    def recolor(self, ids, replacement_style="fill:black;"):
         # TODO: Is this even necessary anymore?
-        for el in self.csstree.query_all(f"#{id} *"):
-            el.etree_element.set("style", replacement_style)
+        for id in ids:
+            for el in self.csstree.query_all(f"#{id} *"):
+                el.etree_element.set("style", replacement_style)
 
-        printv(f"Recolored {id}")
+        printv(f"Recolored {ids}")
 
     def tobytestring(self):
         return ElementTree.tostring(self.etree)

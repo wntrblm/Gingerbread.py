@@ -3,14 +3,12 @@
 # Full text available at: https://opensource.org/licenses/MIT
 
 import argparse
+from ast import alias
 import datetime
 import pathlib
 import sys
 
 import pyvips
-import rich
-import rich.live
-import rich.text
 import svgpathtools
 import svgpathtools.svg_to_paths
 
@@ -18,15 +16,16 @@ from . import _geometry, _svg_document, pcb, trace
 from ._print import print, printv, set_timing, set_verbose
 from ._utils import compare_file_to_string, default_param_value
 
-console = rich.get_console()
 
-LAYERS = {
-    "FSilkS": "F.SilkS",
-    "BSilkS": "B.SilkS",
-    "FCu": "F.Cu",
-    "BCu": "B.Cu",
-    "FMask": "F.Mask",
-    "BMask": "B.Mask",
+_EDGE_LAYERS = ("Edge.Cuts", "EdgeCuts", "Outline")
+_DRILL_LAYERS = ("Drill", "Drills")
+_GRAPHIC_LAYERS = {
+    "F.SilkS": ("F.SilkS", "FSilkS", "F.Silk", "FSilk"),
+    "B.SilkS": ("B.SilkS", "BSilkS", "B.Silk", "BSilk"),
+    "F.Cu": ("F.Cu", "FCu"),
+    "B.Cu": ("B.Cu", "BCu"),
+    "F.Mask": ("F.Mask", "FMask"),
+    "B.Mask": ("B.Mask", "BMask"),
 }
 
 
@@ -195,63 +194,55 @@ class Converter:
         # gingerbread.trace the threads no longer saved any time.
         print("[bold]Converting graphic layers")
 
-        for src, dst in LAYERS.items():
-            self._convert_layer(
-                src,
-                dst,
-                cache=cache,
-            )
+        for canonical, aliases in _GRAPHIC_LAYERS.items():
+            svg_filename = self.workdir / f"output-{canonical}.svg"
+            footprint_filename = self.workdir / f"output-{canonical}.kicad_mod"
 
-    def _convert_layer(
-        self, src_layer_name: str, dst_layer_name: str, cache: bool = True
-    ):
-        svg_filename = self.workdir / f"output-{dst_layer_name}.svg"
-        footprint_filename = self.workdir / f"output-{dst_layer_name}.kicad_mod"
+            printv(f"Processing {canonical}")
 
-        printv(f"Processing {dst_layer_name}")
+            printv("Preparing SVG for rendering")
+            doc = self.doc.copy()
 
-        printv("Preparing SVG for rendering")
-        doc = self.doc.copy()
+            if not doc.remove_layers(keep=aliases):
+                print(f"{canonical:<10} [yellow]not found[/yellow]")
+                printv(f"Searched for {', '.join(aliases)}")
+                continue
 
-        if not doc.remove_layers(keep=[src_layer_name]):
-            print(f"{src_layer_name:<10} [yellow]not found[/yellow]")
-            return
+            doc.recolor(aliases)
+            svg_text = doc.tostring()
 
-        doc.recolor(src_layer_name)
-        svg_text = doc.tostring()
+            # See if the cached layer hasn't changed, if so, don't bother re-rendering.
+            if (
+                cache
+                and footprint_filename.exists()
+                and compare_file_to_string(svg_filename, svg_text)
+            ):
+                print(f"{canonical:<10} [cyan]cached[/cyan]")
 
-        # See if the cached layer hasn't changed, if so, don't bother re-rendering.
-        if (
-            cache
-            and footprint_filename.exists()
-            and compare_file_to_string(svg_filename, svg_text)
-        ):
-            print(f"{src_layer_name:<10} [cyan]cached[/cyan]")
+            # No cached version, render and convert it.
+            else:
+                if cache:
+                    svg_filename.write_text(svg_text)
 
-        # No cached version, render and convert it.
-        else:
-            if cache:
-                svg_filename.write_text(svg_text)
+                image_data = doc.render()
 
-            image_data = doc.render()
+                printv("Preparing image for tracing")
+                image = pyvips.Image.new_from_array(image_data, interpretation="srgb")
+                bitmap = trace._prepare_image(image, invert=False, threshold=127)
+                polys = trace._trace_bitmap_to_polys(bitmap, center=False)
 
-            printv("Preparing image for tracing")
-            image = pyvips.Image.new_from_array(image_data, interpretation="srgb")
-            bitmap = trace._prepare_image(image, invert=False, threshold=127)
-            polys = trace._trace_bitmap_to_polys(bitmap, center=False)
+                if not polys:
+                    print(f"{canonical:<10} [red]empty[red]")
+                    continue
 
-            if not polys:
-                print(f"{src_layer_name:<10} [red]empty[red]")
-                return
+                footprint = trace.generate_footprint(
+                    polys=polys, dpi=doc.dpi, layer=canonical, position=self.pcb.offset
+                )
+                footprint_filename.write_text(footprint)
 
-            footprint = trace.generate_footprint(
-                polys=polys, dpi=doc.dpi, layer=dst_layer_name, position=self.pcb.offset
-            )
-            footprint_filename.write_text(footprint)
+                print(f"{canonical:<10} [green]converted[green]")
 
-            print(f"{src_layer_name:<10} [green]converted[green]")
-
-        self.pcb.add_literal(footprint_filename.read_text())
+            self.pcb.add_literal(footprint_filename.read_text())
 
 
 def convert(
