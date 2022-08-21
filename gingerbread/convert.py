@@ -3,22 +3,20 @@
 # Full text available at: https://opensource.org/licenses/MIT
 
 import argparse
-import concurrent.futures
 import datetime
-import os.path
 import pathlib
 import sys
 
+import pyvips
 import rich
 import rich.live
 import rich.text
 import svgpathtools
 import svgpathtools.svg_to_paths
-import pyvips
 
 from . import _geometry, _svg_document, pcb, trace
-from ._print import print, printv, set_verbose, set_timing, stderr_console
-from ._utils import default_param_value
+from ._print import print, printv, set_timing, set_verbose
+from ._utils import compare_file_to_string, default_param_value
 
 console = rich.get_console()
 
@@ -41,20 +39,26 @@ class Converter:
         self.doc = doc
         self.pcb = pcb
         self.bbox = (0, 0, 0, 0)
-        self.workdir = os.path.join(".", ".cache")
-        os.makedirs(self.workdir, exist_ok=True)
+        self.workdir = pathlib.Path(".", ".cache")
+        self.workdir.mkdir(parents=True, exist_ok=True)
 
     @property
     def centroid(self):
         return self.bbox[0] + (self.bbox[2] / 2), self.bbox[1] + (self.bbox[3] / 2)
 
-    def convert(self, outline: bool = True, drills: bool = True, layers: bool = True):
+    def convert(
+        self,
+        outline: bool = True,
+        drills: bool = True,
+        layers: bool = True,
+        cache: bool = True,
+    ):
         if outline:
             self.convert_outline()
         if drills:
             self.convert_drills()
         if layers:
-            self.convert_layers()
+            self.convert_layers(cache=cache)
 
     def convert_outline(self):
         print("[bold]Converting board outline")
@@ -185,112 +189,69 @@ class Converter:
                 "[yellow]No drills found[/yellow] [italic](use --no-drills to suppress this warning)"
             )
 
-    def convert_layers(self):
+    def convert_layers(self, cache: bool = True):
+        # This previously used multiple threads to work around the slowness of
+        # having to shell out to bitmap2component, but when we switched to
+        # gingerbread.trace the threads no longer saved any time.
         print("[bold]Converting graphic layers")
 
-        def _format_status(results, captured_out):
-            lines = []
-            for name, status in results.items():
-                match status:
-                    case "empty":
-                        status = "[yellow]empty[/]"
-                    case "cached":
-                        status = "[cyan]cached[/]"
-                    case "done":
-                        status = "[green]done[/]"
+        for src, dst in LAYERS.items():
+            self._convert_layer(
+                src,
+                dst,
+                cache=cache,
+            )
 
-                if captured_out.get(name):
-                    lines.append(captured_out[name].strip())
+    def _convert_layer(
+        self, src_layer_name: str, dst_layer_name: str, cache: bool = True
+    ):
+        svg_filename = self.workdir / f"output-{dst_layer_name}.svg"
+        footprint_filename = self.workdir / f"output-{dst_layer_name}.kicad_mod"
 
-                lines.append(f"- {name:<10} {status}")
+        printv(f"Processing {dst_layer_name}")
 
-            return rich.text.Text.from_markup("\n".join(lines))
+        printv("Preparing SVG for rendering")
+        doc = self.doc.copy()
 
-        results = {k: "..." for k in LAYERS.keys()}
-        captured_out = {}
+        if not doc.remove_layers(keep=[src_layer_name]):
+            print(f"{src_layer_name:<10} [yellow]empty[/yellow]")
+            return
 
-        live_status = rich.live.Live(_format_status(results, captured_out))
-        executor = concurrent.futures.ThreadPoolExecutor()
+        doc.recolor(src_layer_name)
+        svg_text = doc.tostring()
 
-        with live_status:
-            with executor:
-                futures = [
-                    executor.submit(
-                        _convert_layer_thread,
-                        self.doc,
-                        self.workdir,
-                        self.pcb.offset,
-                        src,
-                        dst,
-                    )
-                    for src, dst in LAYERS.items()
-                ]
+        # See if the cached layer hasn't changed, if so, don't bother re-rendering.
+        if (
+            cache
+            and footprint_filename.exists()
+            and compare_file_to_string(svg_filename, svg_text)
+        ):
+            print(f"{src_layer_name:<10} [cyan]cached[/cyan]")
 
-                for future in concurrent.futures.as_completed(futures):
-                    result = future.result()
-                    layer_name, footprint, status, stderr = result
+        # No cached version, render and convert it.
+        else:
+            if cache:
+                svg_filename.write_text(svg_text)
 
-                    results[layer_name] = status
-                    captured_out[layer_name] = stderr
+            image_data = doc.render()
 
-                    if footprint:
-                        with open(footprint, "r") as fh:
-                            self.pcb.add_literal(fh.read())
+            printv("Preparing image for tracing")
+            image = pyvips.Image.new_from_array(image_data, interpretation="srgb")
+            bitmap = trace._prepare_image(image, invert=False, threshold=127)
+            polys = trace._trace_bitmap_to_polys(bitmap, center=False)
+            footprint = trace.generate_footprint(
+                polys=polys, dpi=doc.dpi, layer=dst_layer_name, position=self.pcb.offset
+            )
+            footprint_filename.write_text(footprint)
 
-                    live_status.update(_format_status(results, captured_out))
+            print(f"{src_layer_name:<10} [green]converted[green]")
 
-
-def _convert_layer(doc: _svg_document.SVGDocument, workdir, position, src_layer_name, dst_layer_name):
-    svg_filename = os.path.join(workdir, f"output-{dst_layer_name}.svg")
-    footprint_filename = os.path.join(workdir, f"output-{dst_layer_name}.kicad_mod")
-
-    doc = doc.copy()
-
-    if not doc.remove_layers(keep=[src_layer_name]):
-        return src_layer_name, None, "empty"
-
-    doc.recolor(src_layer_name)
-    svg_text = doc.tostring()
-
-    # See if the cached layer hasn't changed, if so, don't bother re-rendering.
-    # This could likely be optimized a bit by comparing hashes or even mtime?
-    if os.path.exists(footprint_filename) and os.path.exists(svg_filename):
-        with open(svg_filename, "r") as fh:
-            cached_svg_text = fh.read()
-
-        if svg_text.strip() == cached_svg_text.strip():
-            return src_layer_name, footprint_filename, "cached"
-
-    # No cached version, so render it and convert it.
-    with open(svg_filename, "w") as fh:
-        fh.write(svg_text)
-
-    image_data = doc.render()
-
-    printv("Preparing image for tracing")
-    image = pyvips.Image.new_from_array(image_data, interpretation="srgb")
-    bitmap = trace._prepare_image(image, invert=False, threshold=127)
-    polys = trace._trace_bitmap_to_polys(bitmap, center=False)
-    fp = trace.generate_footprint(
-        polys=polys, dpi=doc.dpi, layer=dst_layer_name, position=position
-    )
-
-    with open(footprint_filename, "w") as fh:
-        fh.write(fp)
-
-    return src_layer_name, footprint_filename, "done"
-
-
-def _convert_layer_thread(*args, **kwargs):
-    with stderr_console().capture() as capture:
-        src_layer_name, mod_filename, status = _convert_layer(*args, **kwargs)
-
-    return src_layer_name, mod_filename, status, capture.get()
+        self.pcb.add_literal(footprint_filename.read_text())
 
 
 def convert(
     *,
-    source: os.PathLike,
+    source: pathlib.Path,
     title: str = "",
     rev: str = "v1",
     date: str = datetime.date.today().strftime("%Y-%m-%d"),
@@ -303,6 +264,7 @@ def convert(
     outline: bool = True,
     drills: bool = True,
     layers: bool = True,
+    cache: bool = True,
 ):
     doc = _svg_document.SVGDocument(source, dpi=dpi)
     pcb_ = pcb.PCB(
@@ -317,7 +279,7 @@ def convert(
     )
 
     convert = Converter(doc, pcb_)
-    convert.convert(outline=outline, drills=drills, layers=layers)
+    convert.convert(outline=outline, drills=drills, layers=layers, cache=cache)
 
     return pcb_
 
@@ -330,6 +292,7 @@ def main():
     parser.add_argument("dest", nargs="?", type=pathlib.Path, default=None)
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--time", action="store_true")
+    parser.add_argument("--no-cache", action="store_true")
 
     parser.add_argument("--title", default=default_param_value(convert, "title"))
     parser.add_argument("--rev", default=default_param_value(convert, "rev"))
@@ -391,6 +354,7 @@ def main():
             outline=args.outline,
             drills=args.drills,
             layers=args.layers,
+            cache=not args.no_cache,
         )
     except ConversionError as e:
         print(f"[red]Conversion error:[/red] {e}")
