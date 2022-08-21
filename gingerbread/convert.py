@@ -214,7 +214,7 @@ class Converter:
         doc = self.doc.copy()
 
         if not doc.remove_layers(keep=[src_layer_name]):
-            print(f"{src_layer_name:<10} [yellow]empty[/yellow]")
+            print(f"{src_layer_name:<10} [yellow]not found[/yellow]")
             return
 
         doc.recolor(src_layer_name)
@@ -239,6 +239,11 @@ class Converter:
             image = pyvips.Image.new_from_array(image_data, interpretation="srgb")
             bitmap = trace._prepare_image(image, invert=False, threshold=127)
             polys = trace._trace_bitmap_to_polys(bitmap, center=False)
+
+            if not polys:
+                print(f"{src_layer_name:<10} [red]empty[red]")
+                return
+
             footprint = trace.generate_footprint(
                 polys=polys, dpi=doc.dpi, layer=dst_layer_name, position=self.pcb.offset
             )
