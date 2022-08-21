@@ -2,6 +2,7 @@
 # Published under the standard MIT License.
 # Full text available at: https://opensource.org/licenses/MIT
 
+import re
 import time
 
 import cssselect2
@@ -90,13 +91,17 @@ class SVGDocument:
 
         return keep_found
 
-    def recolor(self, ids, replacement_style="fill:black;"):
-        # TODO: Is this even necessary anymore?
+    def recolor(self, ids, fill="black", stroke="black"):
+        count = 0
         for id in ids:
-            for el in self.csstree.query_all(f"#{id} *"):
-                el.etree_element.set("style", replacement_style)
+            for el in self.csstree.query_all(f"#{id} [style]"):
+                style = el.get("style")
+                style = re.sub(r"fill:[^none](.+?);", f"fill:{fill};", style)
+                style = re.sub(r"stroke:[^none](.+?);", f"stroke:{fill};", style)
+                el.set("style", style)
+                count += 1
 
-        printv(f"Recolored {ids}")
+        printv(f"Recolored {count} elements")
 
     def tobytestring(self):
         return ElementTree.tostring(self.etree)
