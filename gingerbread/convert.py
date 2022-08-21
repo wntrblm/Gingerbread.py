@@ -3,7 +3,6 @@
 # Full text available at: https://opensource.org/licenses/MIT
 
 import argparse
-from ast import alias
 import datetime
 import pathlib
 import sys
@@ -51,13 +50,14 @@ class Converter:
         drills: bool = True,
         layers: bool = True,
         cache: bool = True,
+        save_layer_images: bool = False,
     ):
         if outline:
             self.convert_outline()
         if drills:
             self.convert_drills()
         if layers:
-            self.convert_layers(cache=cache)
+            self.convert_layers(cache=cache, save_layer_images=save_layer_images)
 
     def convert_outline(self):
         print("[bold]Converting board outline")
@@ -188,15 +188,16 @@ class Converter:
                 "[yellow]No drills found[/yellow] [italic](use --no-drills to suppress this warning)"
             )
 
-    def convert_layers(self, cache: bool = True):
+    def convert_layers(self, cache: bool = True, save_layer_images: bool = False):
         # This previously used multiple threads to work around the slowness of
         # having to shell out to bitmap2component, but when we switched to
         # gingerbread.trace the threads no longer saved any time.
         print("[bold]Converting graphic layers")
 
         for canonical, aliases in _GRAPHIC_LAYERS.items():
-            svg_filename = self.workdir / f"output-{canonical}.svg"
-            footprint_filename = self.workdir / f"output-{canonical}.kicad_mod"
+            svg_filename = self.workdir / f"{canonical}.svg"
+            png_filename = self.workdir / f"{canonical}.png"
+            footprint_filename = self.workdir / f"{canonical}.kicad_mod"
 
             printv(f"Processing {canonical}")
 
@@ -227,7 +228,18 @@ class Converter:
                 image_data = doc.render()
 
                 printv("Preparing image for tracing")
+
+                # Note: currently this messes up the channel order, since vips is expecting
+                # rgba and cairo gives us pre-multiplied bgra. See
+                # https://github.com/libvips/libvips/blob/master/libvips/foreign/cairo.c
+                # This isn't too much of a concern, as the image gets thresholded down to
+                # to black and white so the pixel order doesn't really matter.
                 image = pyvips.Image.new_from_array(image_data, interpretation="srgb")
+
+                if save_layer_images:
+                    printv(f"Saving {png_filename}")
+                    image.write_to_file(png_filename)
+
                 bitmap = trace._prepare_image(image, invert=False, threshold=127)
                 polys = trace._trace_bitmap_to_polys(bitmap, center=False)
 
@@ -261,6 +273,7 @@ def convert(
     drills: bool = True,
     layers: bool = True,
     cache: bool = True,
+    save_layer_images: bool = False
 ):
     doc = _svg_document.SVGDocument(source, dpi=dpi)
     pcb_ = pcb.PCB(
@@ -275,7 +288,7 @@ def convert(
     )
 
     convert = Converter(doc, pcb_)
-    convert.convert(outline=outline, drills=drills, layers=layers, cache=cache)
+    convert.convert(outline=outline, drills=drills, layers=layers, cache=cache, save_layer_images=save_layer_images)
 
     return pcb_
 
@@ -289,6 +302,7 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument("--time", action="store_true")
     parser.add_argument("--no-cache", action="store_true")
+    parser.add_argument("--save-layer-images", action="store_true")
 
     parser.add_argument("--title", default=default_param_value(convert, "title"))
     parser.add_argument("--rev", default=default_param_value(convert, "rev"))
@@ -351,6 +365,7 @@ def main():
             drills=args.drills,
             layers=args.layers,
             cache=not args.no_cache,
+            save_layer_images=args.save_layer_images,
         )
     except ConversionError as e:
         print(f"[red]Conversion error:[/red] {e}")
