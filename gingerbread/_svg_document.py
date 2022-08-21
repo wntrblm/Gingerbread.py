@@ -2,10 +2,14 @@
 # Published under the standard MIT License.
 # Full text available at: https://opensource.org/licenses/MIT
 
+import time
+
 import cssselect2
+import numpy as np
 from defusedxml import ElementTree
 
 from ._cffi_deps import cairosvg
+from ._print import printv
 
 
 # Monkeypatches cssselect2.ElementWrapper to add get and set methods.
@@ -59,12 +63,13 @@ class SVGDocument:
 
     def remove_layers(self, keep=None):
         keep = keep or []
-        found = False
+        keep_found = False
+        count = 0
 
         for node in list(self.etree):
             if node.attrib.get("id", "") in keep:
                 node.attrib["visibility"] = "visible"
-                found = True
+                keep_found = True
                 continue
 
             # Check if this is a group with the layer as its single child.
@@ -75,16 +80,22 @@ class SVGDocument:
                 children = list(node)
                 if children and children[0].attrib.get("id", "") in keep:
                     node.attrib["visibility"] = "visible"
-                    found = True
+                    keep_found = True
                     continue
 
             self.etree.remove(node)
+            count += 1
 
-        return found
+        printv(f"Removed {count} layers, keeping {', '.join(keep)}")
+
+        return keep_found
 
     def recolor(self, id, replacement_style="fill:black;"):
+        # TODO: Is this even necessary anymore?
         for el in self.csstree.query_all(f"#{id} *"):
             el.etree_element.set("style", replacement_style)
+
+        printv(f"Recolored {id}")
 
     def tobytestring(self):
         return ElementTree.tostring(self.etree)
@@ -92,11 +103,18 @@ class SVGDocument:
     def tostring(self):
         return ElementTree.tostring(self.etree, encoding="unicode")
 
-    def render(self, dst):
+    def render(self) -> np.ndarray:
+        printv(f"Rendering SVG dpi={self.dpi}")
+        start_time = time.perf_counter()
+
         tree = cairosvg.parser.Tree(bytestring=self.tostring())
         surface = cairosvg.surface.PNGSurface(tree, output=None, dpi=self.dpi)
+        surface.cairo.flush()
 
-        with open(dst, "wb") as fh:
-            surface.cairo.write_to_png(fh)
+        surface_data = np.ndarray(
+            shape=(surface.height, surface.width, 4), dtype=np.uint8, buffer=surface.cairo.get_data())
 
-        return dst
+        delta = time.perf_counter() - start_time
+        printv(f"Rendering took {delta:0.2f} s")
+
+        return surface_data
