@@ -16,7 +16,7 @@ import svgpathtools
 import svgpathtools.svg_to_paths
 
 from . import _geometry, _svg_document, pcb, trace
-from ._print import set_verbose, print, printv
+from ._print import print, printv, set_verbose
 from ._utils import default_param_value
 
 console = rich.get_console()
@@ -180,15 +180,23 @@ class Converter:
         if count:
             print(f"[green]Drills converted[/green]: [cyan]{count}[/cyan]")
         else:
-            print("[yellow]No drills found")
+            print(
+                "[yellow]No drills found[/yellow] [italic](use --no-drills to suppress this warning)"
+            )
 
     def convert_layers(self):
         print("[bold]Converting graphic layers")
+
+        def _format_status(results):
+            return "\n".join(
+                f"- {name:<10} {status}" for name, status in results.items()
+            )
+
         results = {k: "..." for k in LAYERS.keys()}
 
-        status = "\n".join(f"- {name}: {status}" for name, status in results.items())
-
-        with rich.live.Live(rich.text.Text.from_markup(status)) as live_status:
+        with rich.live.Live(
+            rich.text.Text.from_markup(_format_status(results))
+        ) as live_status:
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 futures = [
                     executor.submit(
@@ -211,16 +219,15 @@ class Converter:
                             self.pcb.add_literal(fh.read())
 
                         if cached:
-                            results[layer_name] = "[blue]cached[/blue]"
+                            results[layer_name] = "[cyan]cached[/cyan]"
                         else:
                             results[layer_name] = "[green]done[/green]"
                     else:
                         results[layer_name] = "[yellow]empty[/yellow]"
 
-                    status = "\n".join(
-                        f"- {name}: {status}" for name, status in results.items()
+                    live_status.update(
+                        rich.text.Text.from_markup(_format_status(results))
                     )
-                    live_status.update(rich.text.Text.from_markup(status))
 
 
 def _convert_layer_thread(doc, tmpdir, position, src_layer_name, dst_layer_name):
@@ -237,6 +244,7 @@ def _convert_layer_thread(doc, tmpdir, position, src_layer_name, dst_layer_name)
     svg_text = doc.tostring()
 
     # See if the cached layer hasn't changed, if so, don't bother re-rendering.
+    # This could likely be optimized a bit by comparing hashes or even mtime?
     if os.path.exists(mod_filename) and os.path.exists(svg_filename):
         with open(svg_filename, "r") as fh:
             cached_svg_text = fh.read()
@@ -349,26 +357,31 @@ def main():
 
     set_verbose(args.verbose)
 
-    pcb_ = convert(
-        source=args.source,
-        title=args.title,
-        rev=args.rev,
-        date=args.date,
-        company=args.company,
-        comment1=args.comment1,
-        comment2=args.comment2,
-        comment3=args.comment3,
-        comment4=args.comment4,
-        dpi=args.dpi,
-        outline=args.outline,
-        drills=args.drills,
-        layers=args.layers,
-    )
+    try:
+        pcb_ = convert(
+            source=args.source,
+            title=args.title,
+            rev=args.rev,
+            date=args.date,
+            company=args.company,
+            comment1=args.comment1,
+            comment2=args.comment2,
+            comment3=args.comment3,
+            comment4=args.comment4,
+            dpi=args.dpi,
+            outline=args.outline,
+            drills=args.drills,
+            layers=args.layers,
+        )
+    except ConversionError as e:
+        print(f"[red]Conversion error:[/red] {e}")
+        sys.exit(1)
 
+    print(f"[bold]Writing...")
     with open(args.dest, "w") as fh:
         pcb_.write(fh)
 
-    rich.print(f"[green]Written to {args.dest} :purple_heart:", file=sys.stderr)
+    print(f"[bold][green]Written to {args.dest} :purple_heart:")
 
 
 if __name__ == "__main__":
