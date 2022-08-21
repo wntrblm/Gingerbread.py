@@ -14,9 +14,10 @@ import rich.live
 import rich.text
 import svgpathtools
 import svgpathtools.svg_to_paths
+import pyvips
 
 from . import _geometry, _svg_document, pcb, trace
-from ._print import print, printv, set_verbose
+from ._print import print, printv, set_verbose, set_timing, stderr_console
 from ._utils import default_param_value
 
 console = rich.get_console()
@@ -187,17 +188,32 @@ class Converter:
     def convert_layers(self):
         print("[bold]Converting graphic layers")
 
-        def _format_status(results):
-            return "\n".join(
-                f"- {name:<10} {status}" for name, status in results.items()
-            )
+        def _format_status(results, captured_out):
+            lines = []
+            for name, status in results.items():
+                match status:
+                    case "empty":
+                        status = "[yellow]empty[/]"
+                    case "cached":
+                        status = "[cyan]cached[/]"
+                    case "done":
+                        status = "[green]done[/]"
+
+                if captured_out.get(name):
+                    lines.append(captured_out[name].strip())
+
+                lines.append(f"- {name:<10} {status}")
+
+            return rich.text.Text.from_markup("\n".join(lines))
 
         results = {k: "..." for k in LAYERS.keys()}
+        captured_out = {}
 
-        with rich.live.Live(
-            rich.text.Text.from_markup(_format_status(results))
-        ) as live_status:
-            with concurrent.futures.ProcessPoolExecutor() as executor:
+        live_status = rich.live.Live(_format_status(results, captured_out))
+        executor = concurrent.futures.ThreadPoolExecutor()
+
+        with live_status:
+            with executor:
                 futures = [
                     executor.submit(
                         _convert_layer_thread,
@@ -212,63 +228,64 @@ class Converter:
 
                 for future in concurrent.futures.as_completed(futures):
                     result = future.result()
-                    layer_name, footprint, cached = result
+                    layer_name, footprint, status, stderr = result
+
+                    results[layer_name] = status
+                    captured_out[layer_name] = stderr
 
                     if footprint:
                         with open(footprint, "r") as fh:
                             self.pcb.add_literal(fh.read())
 
-                        if cached:
-                            results[layer_name] = "[cyan]cached[/cyan]"
-                        else:
-                            results[layer_name] = "[green]done[/green]"
-                    else:
-                        results[layer_name] = "[yellow]empty[/yellow]"
-
-                    live_status.update(
-                        rich.text.Text.from_markup(_format_status(results))
-                    )
+                    live_status.update(_format_status(results, captured_out))
 
 
-def _convert_layer_thread(doc, tmpdir, position, src_layer_name, dst_layer_name):
-    svg_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.svg")
-    png_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.png")
-    mod_filename = os.path.join(tmpdir, f"output-{dst_layer_name}.kicad_mod")
+def _convert_layer(doc: _svg_document.SVGDocument, workdir, position, src_layer_name, dst_layer_name):
+    svg_filename = os.path.join(workdir, f"output-{dst_layer_name}.svg")
+    footprint_filename = os.path.join(workdir, f"output-{dst_layer_name}.kicad_mod")
 
     doc = doc.copy()
 
     if not doc.remove_layers(keep=[src_layer_name]):
-        return src_layer_name, None, False
+        return src_layer_name, None, "empty"
 
     doc.recolor(src_layer_name)
     svg_text = doc.tostring()
 
     # See if the cached layer hasn't changed, if so, don't bother re-rendering.
     # This could likely be optimized a bit by comparing hashes or even mtime?
-    if os.path.exists(mod_filename) and os.path.exists(svg_filename):
+    if os.path.exists(footprint_filename) and os.path.exists(svg_filename):
         with open(svg_filename, "r") as fh:
             cached_svg_text = fh.read()
 
         if svg_text.strip() == cached_svg_text.strip():
-            return src_layer_name, mod_filename, True
+            return src_layer_name, footprint_filename, "cached"
 
     # No cached version, so render it and convert it.
     with open(svg_filename, "w") as fh:
         fh.write(svg_text)
 
-    doc.render(png_filename)
+    image_data = doc.render()
 
-    image = trace._load_image(png_filename)
+    printv("Preparing image for tracing")
+    image = pyvips.Image.new_from_array(image_data, interpretation="srgb")
     bitmap = trace._prepare_image(image, invert=False, threshold=127)
     polys = trace._trace_bitmap_to_polys(bitmap, center=False)
     fp = trace.generate_footprint(
         polys=polys, dpi=doc.dpi, layer=dst_layer_name, position=position
     )
 
-    with open(mod_filename, "w") as fh:
+    with open(footprint_filename, "w") as fh:
         fh.write(fp)
 
-    return src_layer_name, mod_filename, False
+    return src_layer_name, footprint_filename, "done"
+
+
+def _convert_layer_thread(*args, **kwargs):
+    with stderr_console().capture() as capture:
+        src_layer_name, mod_filename, status = _convert_layer(*args, **kwargs)
+
+    return src_layer_name, mod_filename, status, capture.get()
 
 
 def convert(
@@ -312,6 +329,7 @@ def main():
     parser.add_argument("source", type=pathlib.Path)
     parser.add_argument("dest", nargs="?", type=pathlib.Path, default=None)
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--time", action="store_true")
 
     parser.add_argument("--title", default=default_param_value(convert, "title"))
     parser.add_argument("--rev", default=default_param_value(convert, "rev"))
@@ -356,6 +374,7 @@ def main():
         args.dest = args.source.with_suffix(".kicad_pcb")
 
     set_verbose(args.verbose)
+    set_timing(args.time)
 
     try:
         pcb_ = convert(
