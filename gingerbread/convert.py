@@ -49,6 +49,7 @@ class Converter:
         outline: bool = True,
         drills: bool = True,
         layers: bool = True,
+        recolor: bool = True,
         cache: bool = True,
         save_layer_images: bool = False,
     ):
@@ -57,7 +58,11 @@ class Converter:
         if drills:
             self.convert_drills()
         if layers:
-            self.convert_layers(cache=cache, save_layer_images=save_layer_images)
+            self.convert_layers(
+                recolor=recolor,
+                cache=cache,
+                save_layer_images=save_layer_images,
+            )
 
     def convert_outline(self):
         print("[bold]Converting board outline")
@@ -188,7 +193,9 @@ class Converter:
                 "[yellow]No drills found[/yellow] [italic](use --no-drills to suppress this warning)"
             )
 
-    def convert_layers(self, cache: bool = True, save_layer_images: bool = False):
+    def convert_layers(
+        self, recolor: bool = True, cache: bool = True, save_layer_images: bool = False
+    ):
         # This previously used multiple threads to work around the slowness of
         # having to shell out to bitmap2component, but when we switched to
         # gingerbread.trace the threads no longer saved any time.
@@ -209,7 +216,9 @@ class Converter:
                 printv(f"Searched for {', '.join(aliases)}")
                 continue
 
-            doc.recolor(aliases)
+            if recolor:
+                doc.recolor(aliases)
+
             svg_text = doc.tostring()
 
             # See if the cached layer hasn't changed, if so, don't bother re-rendering.
@@ -272,8 +281,9 @@ def convert(
     outline: bool = True,
     drills: bool = True,
     layers: bool = True,
+    recolor: bool = True,
     cache: bool = True,
-    save_layer_images: bool = False
+    save_layer_images: bool = False,
 ):
     doc = _svg_document.SVGDocument(source, dpi=dpi)
     pcb_ = pcb.PCB(
@@ -288,7 +298,14 @@ def convert(
     )
 
     convert = Converter(doc, pcb_)
-    convert.convert(outline=outline, drills=drills, layers=layers, cache=cache, save_layer_images=save_layer_images)
+    convert.convert(
+        outline=outline,
+        drills=drills,
+        layers=layers,
+        cache=cache,
+        save_layer_images=save_layer_images,
+        recolor=recolor,
+    )
 
     return pcb_
 
@@ -324,6 +341,11 @@ def main():
     )
     parser.add_argument(
         "--dpi", type=float, default=default_param_value(convert, "dpi")
+    )
+    parser.add_argument(
+        "--recolor",
+        action=argparse.BooleanOptionalAction,
+        default=default_param_value(convert, "recolor"),
     )
     parser.add_argument(
         "--outline",
@@ -364,6 +386,7 @@ def main():
             outline=args.outline,
             drills=args.drills,
             layers=args.layers,
+            recolor=args.recolor,
             cache=not args.no_cache,
             save_layer_images=args.save_layer_images,
         )
