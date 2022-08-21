@@ -35,10 +35,15 @@ def set_timing(t: bool):
 def print_(*args, **kwargs):
     previous_frame = inspect.currentframe().f_back.f_back
     module = inspect.getmodule(previous_frame.f_code)
-    module_name = pathlib.Path(module.__file__).stem.lstrip("_")
+
+    if module is None:
+        module_name = "unknown"
+    else:
+        module_name = pathlib.Path(module.__file__).stem.lstrip("_")
 
     if _TIMING:
-        stderr_console().print(f"[italic]{time.process_time():2.3f} {module_name}:[/]", *args, **kwargs)
+        timestr = f"{time.process_time():5.3f}"
+        stderr_console().print(f"[italic]{timestr:>8} {module_name}:[/]", *args, **kwargs)
     else:
         stderr_console().print(f"[italic]{module_name}:[/]", *args, **kwargs)
 
