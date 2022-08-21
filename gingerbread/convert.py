@@ -15,7 +15,7 @@ import rich.text
 import svgpathtools
 import svgpathtools.svg_to_paths
 
-from . import _document, _geometry, pcb, trace
+from . import _geometry, _svg_document, pcb, trace
 from ._print import set_verbose, print, printv
 from ._utils import default_param_value
 
@@ -36,7 +36,7 @@ class ConversionError(RuntimeError):
 
 
 class Converter:
-    def __init__(self, doc: _document.SVGDocument, pcb: pcb.PCB):
+    def __init__(self, doc: _svg_document.SVGDocument, pcb: pcb.PCB):
         self.doc = doc
         self.pcb = pcb
         self.bbox = (0, 0, 0, 0)
@@ -279,7 +279,7 @@ def convert(
     drills: bool = True,
     layers: bool = True,
 ):
-    doc = _document.SVGDocument(source, dpi=dpi)
+    doc = _svg_document.SVGDocument(source, dpi=dpi)
     pcb_ = pcb.PCB(
         title=title,
         rev=rev,
