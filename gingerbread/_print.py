@@ -5,15 +5,21 @@
 import inspect
 import pathlib
 import sys
+import threading
+import time
 
 import rich.console
 
+_thread_local = threading.local()
+
 _VERBOSE = False
-_STDERR_C = rich.console.Console(file=sys.stderr)
+_TIMING = False
 
 
 def stderr_console() -> rich.console.Console:
-    return _STDERR_C
+    if not hasattr(_thread_local, "stderr_c"):
+        _thread_local.stderr_c = rich.console.Console(file=sys.stderr)
+    return _thread_local.stderr_c
 
 
 def set_verbose(v: bool):
@@ -21,12 +27,20 @@ def set_verbose(v: bool):
     _VERBOSE = v
 
 
+def set_timing(t: bool):
+    global _TIMING
+    _TIMING = t
+
+
 def print_(*args, **kwargs):
     previous_frame = inspect.currentframe().f_back.f_back
     module = inspect.getmodule(previous_frame.f_code)
-    module_name = pathlib.Path(module.__file__).stem
+    module_name = pathlib.Path(module.__file__).stem.lstrip("_")
 
-    _STDERR_C.print(f"[italic]{module_name}:[/]", *args, **kwargs)
+    if _TIMING:
+        stderr_console().print(f"[italic]{time.process_time():2.3f} {module_name}:[/]", *args, **kwargs)
+    else:
+        stderr_console().print(f"[italic]{module_name}:[/]", *args, **kwargs)
 
 
 def print(*args, **kwargs):
@@ -34,10 +48,12 @@ def print(*args, **kwargs):
 
 
 def printv(*args, **kwargs):
+    global _VERBOSE
     if _VERBOSE >= 1:
         print_(*args, **kwargs)
 
 
 def printvv(*args, **kwargs):
+    global _VERBOSE
     if _VERBOSE >= 2:
         print_(*args, **kwargs)
