@@ -377,7 +377,7 @@ def main():
         print(f"[red]Conversion error:[/red] {e}")
         sys.exit(1)
 
-    print(f"[bold]Writing...")
+    print("[bold]Writing...")
     with open(args.dest, "w") as fh:
         pcb_.write(fh)
 
