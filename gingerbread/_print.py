@@ -2,8 +2,9 @@
 # Published under the standard MIT License.
 # Full text available at: https://opensource.org/licenses/MIT
 
-import sys
 import inspect
+import pathlib
+import sys
 
 import rich.console
 
@@ -23,7 +24,7 @@ def set_verbose(v: bool):
 def print_(*args, **kwargs):
     previous_frame = inspect.currentframe().f_back.f_back
     module = inspect.getmodule(previous_frame.f_code)
-    module_name = module.__name__.rsplit(".").pop()
+    module_name = pathlib.Path(module.__file__).stem
 
     _STDERR_C.print(f"[italic]{module_name}:[/]", *args, **kwargs)
 
