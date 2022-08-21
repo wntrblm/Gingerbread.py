@@ -53,7 +53,7 @@ def _load_image(path) -> pyvips.Image:
 def _prepare_image(
     image: pyvips.Image, invert: bool = False, threshold: int = 127
 ) -> np.array:
-    printv(f"Image size: {image.width} x {image.height}")
+    printv(f"Image size: {image.width} x {image.height}, {image.bands} bands, {image.interpretation}")
     printv("Converting to black & white")
 
     if image.hasalpha():
@@ -81,28 +81,31 @@ def _trace_bitmap_to_polys(
     else:
         offset = (0, 0)
 
-    polys = []
+    polys_and_holes = []
 
     for path in potracecffi.iter_paths(trace_result):
         pts = [
             (p[0] + offset[0], p[1] + offset[1])
             for p in _path_to_poly_pts(path, bezier_resolution=bezier_resolution)
         ]
+
         hole = path.sign == ord("-")
+        poly = gdstk.Polygon(list(pts))
 
         if not hole:
-            p = gdstk.Polygon(list(pts))
-            polys.append(p)
+            polys_and_holes.append([poly])
         else:
-            hole_poly = gdstk.Polygon(list(pts))
-            result = gdstk.boolean(polys.pop(), hole_poly, "not")
+            polys_and_holes[-1].append(poly)
 
-            # if gdstk produced multiple polygons, stitch them back together
-            while len(result) > 1:
-                new_result = gdstk.boolean(result[0], result[1], "or")
-                result = new_result + result[2:]
+    polys = []
+    for n, (poly, *holes) in enumerate(polys_and_holes):
+        if not holes:
+            polys.append(poly)
+            continue
 
-            polys.extend(result)
+        results = gdstk.boolean(poly, holes, "not")
+
+        polys.extend(results)
 
     printv(f"Converted to {len(polys)} polygons")
 
