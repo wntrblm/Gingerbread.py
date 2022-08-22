@@ -16,3 +16,10 @@ def format(s):
     s.install("isort", "black")
     s.run("isort", "gingerbread")
     s.run("black", "gingerbread", "noxfile.py")
+
+
+@nox.session
+def test(s):
+    s.install(".")
+    s.install("pytest")
+    s.run("pytest", "tests")

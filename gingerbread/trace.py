@@ -70,19 +70,11 @@ def _prepare_image(
     return image_array
 
 
-def _trace_bitmap_to_polys(
-    bitmap: np.array, center: bool = True, bezier_resolution=0.25
-) -> list[gdstk.Polygon]:
-    printv("Tracing")
-    trace_result = potracecffi.trace(bitmap, turdsize=0)
-
-    printv("Converting paths to polygons")
-
-    if center:
-        offset = (-bitmap.shape[1] / 2, -bitmap.shape[0] / 2)
-    else:
-        offset = (0, 0)
-
+def _trace_result_to_polys(
+    trace_result, offset: tuple[float, float], bezier_resolution: float = 0.25
+):
+    # First, go through all the paths and generate a main polygon and a list of
+    # hole polygons for each.
     polys_and_holes = []
 
     for path in potracecffi.iter_paths(trace_result):
@@ -99,8 +91,11 @@ def _trace_bitmap_to_polys(
         else:
             polys_and_holes[-1].append(poly)
 
+    # Second, iterate through the list of polygons and holes and boolean
+    # subtract all the holes. This is much faster than running the boolean op
+    # seperately for each hole.
     polys = []
-    for n, (poly, *holes) in enumerate(polys_and_holes):
+    for poly, *holes in polys_and_holes:
         if not holes:
             polys.append(poly)
             continue
@@ -108,6 +103,26 @@ def _trace_bitmap_to_polys(
         results = gdstk.boolean(poly, holes, "not")
 
         polys.extend(results)
+
+    return polys
+
+
+def _trace_bitmap_to_polys(
+    bitmap: np.array, center: bool = True, bezier_resolution=0.25
+) -> list[gdstk.Polygon]:
+
+    if center:
+        offset = (-bitmap.shape[1] / 2, -bitmap.shape[0] / 2)
+    else:
+        offset = (0, 0)
+
+    printv("Tracing")
+    trace_result = potracecffi.trace(bitmap, turdsize=0)
+
+    printv("Converting paths to polygons")
+    polys = _trace_result_to_polys(
+        trace_result, offset=offset, bezier_resolution=bezier_resolution
+    )
 
     printv(f"Converted to {len(polys)} polygons")
 
