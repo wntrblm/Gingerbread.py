@@ -217,7 +217,7 @@ class Converter:
                 continue
 
             if recolor:
-                doc.recolor(aliases)
+                doc.recolor()
 
             svg_text = doc.tostring()
 

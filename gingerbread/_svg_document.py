@@ -91,15 +91,16 @@ class SVGDocument:
 
         return keep_found
 
-    def recolor(self, ids, fill="black", stroke="black"):
+    def recolor(self, fill="black", stroke="black"):
         count = 0
-        for id in ids:
-            for el in self.csstree.query_all(f"#{id} [style]"):
-                style = el.get("style")
-                style = re.sub(r"fill:[^none](.+?);", f"fill:{fill};", style)
-                style = re.sub(r"stroke:[^none](.+?);", f"stroke:{fill};", style)
-                el.set("style", style)
-                count += 1
+
+        for el in self.csstree.query_all("[style]"):
+            printv(el)
+            style = el.get("style")
+            style = re.sub(r"fill:[^none](.+?);", f"fill:{fill};", style)
+            style = re.sub(r"stroke:[^none](.+?);", f"stroke:{fill};", style)
+            el.set("style", style)
+            count += 1
 
         printv(f"Recolored {count} elements")
 
