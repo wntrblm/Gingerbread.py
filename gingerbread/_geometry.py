@@ -4,10 +4,6 @@
 
 """Helpers for manipulating, processing, and converting geometry"""
 
-# Copyright (c) 2022 Alethea Katherine Flowers.
-# Published under the standard MIT License.
-# Full text available at: https://opensource.org/licenses/MIT
-
 import math
 from typing import Iterator
 
