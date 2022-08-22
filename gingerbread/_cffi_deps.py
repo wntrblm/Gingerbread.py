@@ -14,10 +14,9 @@ if sys.platform == "darwin":
     ctypes.macholib.dyld.DEFAULT_LIBRARY_FALLBACK.append("/opt/homebrew/lib")
 
 import cairocffi
-import pangocffi
-import pangocairocffi
 import cairosvg
-
+import pangocairocffi
+import pangocffi
 
 __all__ = [
     "cairocffi",

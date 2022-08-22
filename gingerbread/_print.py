@@ -43,7 +43,9 @@ def print_(*args, **kwargs):
 
     if _TIMING:
         timestr = f"{time.process_time():5.3f}"
-        stderr_console().print(f"[italic]{timestr:>8} {module_name}:[/]", *args, **kwargs)
+        stderr_console().print(
+            f"[italic]{timestr:>8} {module_name}:[/]", *args, **kwargs
+        )
     else:
         stderr_console().print(f"[italic]{module_name}:[/]", *args, **kwargs)
 

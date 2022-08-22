@@ -15,7 +15,6 @@ from . import _geometry, _svg_document, pcb, trace
 from ._print import print, printv, set_timing, set_verbose
 from ._utils import compare_file_to_string, default_param_value
 
-
 _EDGE_LAYERS = ("Edge.Cuts", "EdgeCuts", "Outline")
 _DRILL_LAYERS = ("Drill", "Drills")
 _GRAPHIC_LAYERS = {

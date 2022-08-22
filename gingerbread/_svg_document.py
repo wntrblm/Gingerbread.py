@@ -119,7 +119,10 @@ class SVGDocument:
         surface.cairo.flush()
 
         surface_data = np.ndarray(
-            shape=(surface.height, surface.width, 4), dtype=np.uint8, buffer=surface.cairo.get_data())
+            shape=(surface.height, surface.width, 4),
+            dtype=np.uint8,
+            buffer=surface.cairo.get_data(),
+        )
 
         delta = time.perf_counter() - start_time
         printv(f"Rendering took {delta:0.2f} s")

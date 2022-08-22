@@ -9,8 +9,8 @@ Note: KiCAD's S-Expression parser *is* position sensitive, so care must be taken
 
 import datetime
 import io
-from typing import Union
 import uuid as _uuid
+from typing import Union
 
 # https://dev-docs.kicad.org/en/file-formats/sexpr-intro/
 
@@ -548,7 +548,11 @@ def effects(
 
 
 def gr_text(
-    text: str, *, at: tuple[float, float] = (0, 0), layer: str | S = layer("F.Cu"), effects: S = None
+    text: str,
+    *,
+    at: tuple[float, float] = (0, 0),
+    layer: str | S = layer("F.Cu"),
+    effects: S = None,
 ):
     layer = _layer_or_str(layer)
 

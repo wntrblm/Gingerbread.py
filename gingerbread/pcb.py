@@ -4,8 +4,8 @@
 
 """PCB definition utilities"""
 
-import io
 import datetime
+import io
 from os import PathLike
 
 from . import _sexpr as s

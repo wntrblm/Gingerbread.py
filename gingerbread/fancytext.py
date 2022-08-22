@@ -16,13 +16,13 @@
 
 import argparse
 import atexit
-from cmath import sqrt
 import html
 import math
 import os
 import shutil
 import sys
 import tempfile
+from cmath import sqrt
 
 import rich
 import tinycss2.color3
@@ -255,9 +255,7 @@ class Outline:
                 context.line_to(0, 0)
             case "(":
                 context.move_to(0, h)
-                context.arc(
-                    0, h / 2, h / 2, math.radians(90), math.radians(270)
-                )
+                context.arc(0, h / 2, h / 2, math.radians(90), math.radians(270))
                 context.line_to(w / 2, 0)
                 context.line_to(w / 2, h)
                 context.line_to(0, h)
@@ -296,9 +294,7 @@ class Outline:
                 context.line_to(w / 2, 0)
             case ")":
                 context.move_to(w / 2, 0)
-                context.arc(
-                    w, h / 2, h / 2, math.radians(-90), math.radians(90)
-                )
+                context.arc(w, h / 2, h / 2, math.radians(-90), math.radians(90))
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
 
@@ -392,7 +388,13 @@ def generate(
 
     printv("Tracing image")
     fp = trace.trace(
-        png_path, invert=False, threshold=127, dpi=dpi, layer=layer, center=True, position=position
+        png_path,
+        invert=False,
+        threshold=127,
+        dpi=dpi,
+        layer=layer,
+        center=True,
+        position=position,
     )
 
     return fp

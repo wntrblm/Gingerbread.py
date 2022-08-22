@@ -22,8 +22,8 @@ import pyvips
 import rich
 
 from . import _sexpr as s
-from ._print import set_verbose, printv
 from ._geometry import bezier_to_points
+from ._print import printv, set_verbose
 
 
 def _path_to_poly_pts(
@@ -53,7 +53,9 @@ def _load_image(path) -> pyvips.Image:
 def _prepare_image(
     image: pyvips.Image, invert: bool = False, threshold: int = 127
 ) -> np.array:
-    printv(f"Image size: {image.width} x {image.height}, {image.bands} bands, {image.interpretation}")
+    printv(
+        f"Image size: {image.width} x {image.height}, {image.bands} bands, {image.interpretation}"
+    )
     printv("Converting to black & white")
 
     if image.hasalpha():
@@ -118,7 +120,13 @@ def _generate_fp_poly(poly: gdstk.Polygon, *, layer: str, dpmm: float) -> s.S:
     return s.fp_poly(pts=pts, layer=layer, width=0, fill=True)
 
 
-def generate_footprint(polys: list[gdstk.Polygon], *, dpi: float, layer: str, position: tuple[float, float] = (0, 0)) -> str:
+def generate_footprint(
+    polys: list[gdstk.Polygon],
+    *,
+    dpi: float,
+    layer: str,
+    position: tuple[float, float] = (0, 0),
+) -> str:
     printv(f"Generating footprint, {dpi=}")
     dpmm = 25.4 / dpi
 

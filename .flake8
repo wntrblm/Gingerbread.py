@@ -1,0 +1,4 @@
+[flake8]
+extend-ignore = E203, E501
+import-order-style = google
+application-import-names = gingerbread,tests

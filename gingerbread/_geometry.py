@@ -7,9 +7,9 @@
 import math
 from typing import Iterator
 
+import cssselect2
 import numpy as np
 import svgpathtools
-import cssselect2
 
 
 def bbox_to_rect(xmin, xmax, ymin, ymax) -> tuple[float, float, float, float]:
