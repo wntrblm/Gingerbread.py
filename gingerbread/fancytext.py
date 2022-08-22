@@ -133,13 +133,13 @@ class Text:
         desc.set_family(self.font)
         desc.set_weight(pangocffi.Weight.BOLD if self.bold else pangocffi.Weight.NORMAL)
         desc.set_size(pangocffi.units_from_double(self.size_mm * self.dpmm))
-        metrics = pangocffi.pangocffi.pango_context_get_metrics(
+        metrics = pangocffi.pango.pango_context_get_metrics(
             self._layout.get_context()._pointer, desc._pointer, pangocffi.ffi.NULL
         )
         underline_thickness_px = pangocffi.units_to_double(
-            pangocffi.pangocffi.pango_font_metrics_get_underline_thickness(metrics)
+            pangocffi.pango.pango_font_metrics_get_underline_thickness(metrics)
         )
-        pangocffi.pangocffi.pango_font_metrics_unref(metrics)
+        pangocffi.pango.pango_font_metrics_unref(metrics)
 
         # Now that we know the underline thickness, we cna use that to draw the overbar.
         context.save()
