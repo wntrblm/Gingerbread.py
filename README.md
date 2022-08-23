@@ -19,8 +19,7 @@ There are several [similar projects](#similar-projects) that might fit your use 
 
 ## Installation
 
-Presently we've only ever tested on macOS. It'll probably work on Linux, and will probably be a pain in the ass to get working on Windows.
-
+Presently we've only ever tested on macOS and Linux. It might be tricky to get working regardless of platform, and it probably doesn't work on Windows except under WSL. There's a [Docker option](#docker), but it has some drawbacks.
 
 ### macOS
 
@@ -35,6 +34,55 @@ You'll also need Python 3.10 or later. Install using `pip`:
 ```sh
 python3 -m pip install gingerbread
 ```
+
+### Linux / WSL
+
+At the time of writing, Ubuntu 22.04 or later is your best bet. If you want to use Debian, you'll need to build [Python 3.10](https://realpython.com/installing-python/#how-to-build-python-from-source-code) or later and pango 1.50 or later, since the current versions are behind. This *should* work under WSL (Windows Subsystem for Linux), just be sure to use Ubuntu 22.04 or later.
+
+You'll need at least the following system packages:
+
+```sh
+sudo apt install -y \
+    build-essential \
+    cmake \
+    libpotrace-dev \
+    libvips-dev \
+    libcairo2 \
+    libpango1.0-0 \
+    libpangocairo-1.0-0 \
+    libvips42
+```
+
+Once you have the requisites installed, you can install Gingerbread:
+
+```sh
+python3 -m pip install --user gingerbread
+```
+
+### Docker
+
+There's a rough Docker version of Gingerbread that you can use if all else fails. From our limited testing, `convert` works okay (although a bit slower), but `fancytext` does not work at all.
+
+To use the Docker version, clone this repo:
+
+```sh
+git clone https://github.com/wntrblm/Gingerbread.git
+cd Gingerbread
+```
+
+Build the image- we don't publish it to Dockerhub because it's experimental:
+
+```sh
+docker build -t gingerbread .
+```
+
+You can now run Gingerbread using Docker. You'll need to pass the current working directory as a volume so that Gingerbread can read and write files. You can test this out on the included example file:
+
+```sh
+cd example
+docker run --rm -v "$PWD":/workdir gingerbread -m gingerbread.convert example.svg
+```
+
 
 ## Using convert
 
