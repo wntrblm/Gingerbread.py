@@ -16,9 +16,11 @@ That said, you're welcome to try it out, learn from it, take code from it, and g
 
 There are several [similar projects](#similar-projects) that might fit your use case better.
 
+
 ## Installation
 
 Presently we've only ever tested on macOS. It'll probably work on Linux, and will probably be a pain in the ass to get working on Windows.
+
 
 ### macOS
 
@@ -36,27 +38,40 @@ python3 -m pip install gingerbread
 
 ## Using convert
 
-`convert` is designed to convert designs created with [Affinity Designer](https://affinity.serif.com/en-gb/designer/) to KiCAD PCB files.
+`convert` is designed to convert designs created with [Affinity Designer](https://affinity.serif.com/en-gb/designer/) to KiCAD PCB files. `convert` requires a bit of work to set up, but once working you can rapidly iterate on your design.
+
+There's an example in the `./example` directory, including the source `afdesign` file, the exported `svg`, and the generated `kicad_pcb`. It might be useful to look at the example as you work through these docs.
+
 
 ### Page settings
 
-It's recommend to set up your document in Affinity to use millimeters and to have a DPI of `2540`:
+It's *highly recommended* to set up your document in Affinity to use millimeters and to have a DPI of `2540`:
 
 ![Affinity page settings](readme_resources/affinity-page-settings.png)
 
-Why that specific DPI? Well, 2540 DPI happens to be 1000 dots-per-mm, which helpfully avoids rounding issues when exporting the design from Affinity and when converting the outline and drills.
+Why that specific DPI? Well, 2540 DPI happens to be 1000 dots-per-mm, which helpfully avoids rounding issues when exporting the design from Affinity and when converting the outline and drills. You can use other DPIs, just be sure to tell `convert` using the `--dpi` flag.
+
 
 ### Creating an outline
 
-The outline should be drawn on a layer named `Edge.Cuts` in Affinity. `convert` handles `Edge.Cuts` in a specific way to make sure that there is a 1-to-1 match between the size and units in Affinity and KiCAD. This approach can't handle as many complex edge cases as the rasterization approach used by the graphic layers, but as long as your paths have been converted to curves it should handle them well. `Edge.Cuts` can also contain "cut-outs"- closed paths within the overall board shape.
+The outline should be drawn on a layer named `Edge.Cuts` (or `EdgeCuts`) in Affinity. `convert` handles `Edge.Cuts` in a specific way to make sure that there is a 1-to-1 match between the size and units in Affinity and KiCAD. This approach can't handle as many complex edge cases as the rasterization approach used by the graphic layers, but as long as your paths have been converted to curves it should handle them well. `Edge.Cuts` can also contain "cut-outs"- closed paths within the overall board shape.
+
+The example file has a complex outline with four internal cut-outs.
+
 
 ### Graphics layers
 
 Non-transparent areas on layers `F.SilkS`, `B.SilkS`, `F.Cu`, and `B.Cu` in Affinity are converted as-is to the respective layers in KiCAD. `F.Mask` and `B.Mask` are "inverted" like they are in KiCAD, meaning that non-transparent areas indicate where to *remove* the soldermask. For all of these layers, `convert` works by rasterizing the individual layers to black and white images, re-vectorizing using `trace`, and plotting the results as a KiCAD footprint.
 
+The example file has graphics on the `F.SilkS`, `F.Cu`, and `F.Mask` layers.
+
+
 ### Drills
 
 Items on the `Drills` layer are handled seperately as well. `convert` walks through all of the shapes in the `Drills` layer and converts **only** circles to drills. This is again done to preserve position and size between Affinity and KiCAD.
+
+The example file has a single drill in the center.
+
 
 ### Exporting the design
 
@@ -66,6 +81,7 @@ When exporting the design to an SVG, click the *More* button and setup the expor
 
 You can save this as a preset to avoid having to change these every time you export.
 
+
 ### Running convert
 
 Once the design is exported as an SVG, you can run `convert` to turn it into a KiCAD PCB:
@@ -74,22 +90,22 @@ Once the design is exported as an SVG, you can run `convert` to turn it into a K
 python3 -m gingerbread.convert design.svg
 ```
 
-`convert` will report details about the converted PCB. Double-check this output to make sure that things match up with what you expect:
+`convert` will report details about the converted PCB. Double-check this output to make sure that things match up with what you expect. For example. running convert on the example design shows:
 
 ```
 convert: Converting board outline
-convert: Outline converted: overall board size is 70.80 mm x 128.50 mm (9098.00 mm²).
+convert: Outline converted: overall board size is 100.00 mm x 100.00 mm (10000.00 mm²).
 convert: Converting drills
-convert: Drills converted: 21
+convert: Drills converted: 1
 convert: Converting graphic layers
 convert: F.SilkS    converted
-convert: B.SilkS    converted
+convert: B.SilkS    not found
 convert: F.Cu       converted
-convert: B.Cu       converted
+convert: B.Cu       not found
 convert: F.Mask     converted
-convert: B.Mask     converted
+convert: B.Mask     not found
 convert: Writing...
-convert: Written to panel.kicad_pcb 💜
+convert: Written to example.kicad_pcb 💜
 ```
 
 `convert` has a several options for customizing the conversion process and the output. Run `python3 -m gingerbread.convert --help` to get a full list of options.
@@ -166,6 +182,7 @@ python3 -m gingerbread.trace footprint.png
 
 There's several options for `trace`, including the important `--dpi` option which tells `trace` the physical size that the footprint should be. Run `python3 -m gingerbread.trace --help` see all options.
 
+
 ## Similar projects
 
 Projects similar to Gingerbread's `convert`:
@@ -175,6 +192,7 @@ Projects similar to Gingerbread's `convert`:
 
 Projects similar to Fancytext:
 - [KiBuzzard](https://github.com/gregdavill/KiBuzzard) creates beautiful text labels. Fancytext is actually inspired by and inherits many stylistic choices from Buzzard. However, they differ in their implementation - Buzzard is vector graphics all the way through, whereas Fancytext has an intermediary rasterization step. KiBuzzard is also a KiCAD plugin with a GUI whereas Fancytext is (presently) a terminal application.
+
 
 ## Acknowledgements
 
@@ -204,6 +222,7 @@ Additionally, information and ideas from the following projects were used when b
 ## Contributing
 
 Because this tool is so specifically tailored to Winterbloom's workflow, we aren't really expecting a lot of outside contributions. However, if you'd like to contribute please file an issue or reach out to us before you start writing code, so we can make sure it's something that'll be beneficial for all of us. :)
+
 
 ## License
 
