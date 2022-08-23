@@ -95,7 +95,6 @@ class SVGDocument:
         count = 0
 
         for el in self.csstree.query_all("[style]"):
-            printv(el)
             style = el.get("style")
             style = re.sub(r"fill:[^none](.+?);", f"fill:{fill};", style)
             style = re.sub(r"stroke:[^none](.+?);", f"stroke:{fill};", style)
