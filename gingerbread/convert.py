@@ -67,12 +67,15 @@ class Converter:
         print("[bold]Converting board outline")
 
         # Find the edgecuts layer
-        edge_cuts_layer = list(self.doc.query_all("#EdgeCuts"))
+        edge_cuts_layer = []
+        for name in _EDGE_LAYERS:
+            name = name.replace(".", r"\.")
+            edge_cuts_layer.extend(list(self.doc.query_all(f"#{name}")))
 
         if len(edge_cuts_layer) == 0:
-            raise ConversionError("EdgeCuts layer not found")
+            raise ConversionError("Edge.Cuts layer not found")
         if len(edge_cuts_layer) > 1:
-            raise ConversionError("Multiple elements named EdgeCuts found")
+            raise ConversionError("Multiple elements named Edge.Cuts found")
 
         edge_cuts_layer = edge_cuts_layer[0]
 
@@ -122,14 +125,14 @@ class Converter:
             )
 
         if not paths:
-            raise ConversionError("No paths found on EdgeCuts!")
+            raise ConversionError("No paths found on Edge.Cuts!")
 
         # Figure out the bounding box (path) of the design so that the offset
         # can be determined. The path with the largest bounding box area is the
         # board bounding box.
         paths.sort(key=lambda p: p[0], reverse=True)
 
-        bounding_area, bounding_brect, bounding_path = paths[0]
+        bounding_area, bounding_brect, _ = paths[0]
 
         if bounding_brect[0] != 0 or bounding_brect[1] != 0:
             print(
@@ -153,20 +156,41 @@ class Converter:
         self.pcb.offset = self.bbox[:2]
 
         # Horizontal and vertical measurements for the board bounding box
-        self.pcb.add_horizontal_measurement(0, 0, self.bbox[2], 0)
-        self.pcb.add_vertical_measurement(0, 0, 0, self.bbox[3])
+        self.pcb.add_horizontal_measurement(
+            bounding_brect[0],
+            bounding_brect[1],
+            bounding_brect[0] + bounding_brect[2],
+            bounding_brect[1],
+        )
+        self.pcb.add_vertical_measurement(
+            bounding_brect[0],
+            bounding_brect[1],
+            bounding_brect[0],
+            bounding_brect[1] + bounding_brect[3],
+        )
+        self.pcb.add_rect(
+            bounding_brect[0],
+            bounding_brect[1],
+            bounding_brect[2],
+            bounding_brect[3],
+            layer="Dwgs.User",
+            fill=False,
+        )
 
         # Add all paths as polygons
         for _, _, path in paths:
-            points = self.doc.points_to_mm(_geometry.path_to_points(path))
-            self.pcb.add_poly(points, layer="Edge.Cuts", width=0.5, fill=False)
+            for subpath in path.continuous_subpaths():
+                points = self.doc.points_to_mm(_geometry.path_to_points(subpath))
+                self.pcb.add_poly(points, layer="Edge.Cuts", width=0.5, fill=False)
 
         return True
 
     def convert_drills(self):
         print("[bold]Converting drills")
 
-        drill_elms = list(self.doc.query_all("#Drill *"))
+        drill_elms = list(self.doc.query_all("#Drill *")) + list(
+            self.doc.query_all("#Drills *")
+        )
 
         count = 0
         for el in drill_elms:
