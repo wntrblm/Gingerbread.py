@@ -1,0 +1,15 @@
+Dockerfile
+.git
+.nox
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+env
+pip-log.txt
+.cache
+.mypy_cache
+.pytest_cache
+example/
+readme_resources/
+tests/
