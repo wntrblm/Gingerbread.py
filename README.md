@@ -2,7 +2,7 @@
 
 *Gingerbread* is a set of Python utilities used by [Winterbloom](https://winterbloom.com) to create decorative printed circuit boards (PCBs), such as the ones we used a front panels:
 
-![Wizard Weasel PCB](readme_resources/speak2me.jpg)
+![Front panels made from PCBs](readme_resources/speak2me.jpg)
 
 Gingerbread consists of three utilities:
 
