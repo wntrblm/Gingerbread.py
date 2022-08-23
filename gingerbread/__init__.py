@@ -7,4 +7,4 @@ Gingerbread is a set of Python utilities used by Winterbloom
 (https://winterbloom.com) to create decorative printed circuit boards (PCBs).
 """
 
-__version__ = "0.0.0.dev0"
+__version__ = "2022.8.23"
