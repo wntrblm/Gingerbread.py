@@ -213,10 +213,13 @@ def main():
         bezier_resolution=args.bezier_resolution,
     )
 
-    pyperclip.copy(fp)
-
-    rich.print("[green]Copied to clipboard! :purple_heart:", file=sys.stderr)
-
+    try:
+        pyperclip.copy(fp)
+        rich.print("[green]Copied to clipboard! :purple_heart:", file=sys.stderr)
+    except pyperclip.PyperclipException:
+        out_file = args.image.with_suffix(".kicad_mod")
+        rich.print(f"[yellow]Unable to copy to clipboard, saving as {out_file}")
+        out_file.write_text(fp)
 
 if __name__ == "__main__":
     main()

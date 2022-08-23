@@ -19,6 +19,7 @@ import atexit
 import html
 import math
 import os
+import pathlib
 import shutil
 import sys
 import tempfile
@@ -520,9 +521,12 @@ def main():
         outline_fill=args.outline_fill,
     )
 
-    pyperclip.copy(mod_text)
-
-    rich.print("[green]Copied to clipboard! :purple_heart:", file=sys.stderr)
+    try:
+        pyperclip.copy(mod_text)
+        rich.print("[green]Copied to clipboard! :purple_heart:", file=sys.stderr)
+    except pyperclip.PyperclipException:
+        rich.print("[yellow]Unable to copy to clipboard, saving as fancytext.kicad_mod")
+        pathlib.Path("fancytext.kicad_mod").write_text(mod_text)
 
 
 if __name__ == "__main__":
