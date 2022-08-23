@@ -115,13 +115,16 @@ class SVGDocument:
         start_time = time.perf_counter()
 
         tree = cairosvg.parser.Tree(bytestring=self.tostring())
-        surface = cairosvg.surface.PNGSurface(tree, output=None, dpi=self.dpi)
-        surface.cairo.flush()
+
+        # Hold on to the surface until the SVGDocument object is GCd so that
+        # the surface's image data doesn't get freed.
+        self._surface = cairosvg.surface.PNGSurface(tree, output=None, dpi=self.dpi)
+        self._surface.cairo.flush()
 
         surface_data = np.ndarray(
-            shape=(surface.height, surface.width, 4),
+            shape=(self._surface.height, self._surface.width, 4),
             dtype=np.uint8,
-            buffer=surface.cairo.get_data(),
+            buffer=self._surface.cairo.get_data(),
         )
 
         delta = time.perf_counter() - start_time
