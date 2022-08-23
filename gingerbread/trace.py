@@ -13,7 +13,7 @@
 import argparse
 import pathlib
 import sys
-from typing import Generator
+from typing import Generator, Union
 
 import gdstk
 import numpy as np
@@ -22,6 +22,7 @@ import pyvips
 import rich
 
 from . import _sexpr as s
+from ._cffi_deps import cairocffi
 from ._geometry import bezier_to_points
 from ._print import printv, set_verbose
 
@@ -44,10 +45,34 @@ def _path_to_poly_pts(
         last = segment.c2
 
 
-def _load_image(path) -> pyvips.Image:
-    printv(f"Loading {path}")
-    image = pyvips.Image.new_from_file(path)
-    return image
+def _load_image(path_surface_or_image) -> pyvips.Image:
+    if isinstance(path_surface_or_image, (str, pathlib.Path)):
+        printv(f"Loading {path_surface_or_image}")
+        return pyvips.Image.new_from_file(path_surface_or_image)
+
+    if isinstance(path_surface_or_image, cairocffi.ImageSurface):
+        printv("Loading image from cairo surface")
+        # Note: currently this messes up the channel order, since vips is expecting
+        # rgba and cairo gives us pre-multiplied bgra. See
+        # https://github.com/libvips/libvips/blob/master/libvips/foreign/cairo.c
+        # This isn't too much of a concern, as the image gets thresholded down to
+        # to black and white so the pixel order doesn't really matter.
+        path_surface_or_image.flush()
+        surface_data = np.ndarray(
+            shape=(
+                path_surface_or_image.get_height(),
+                path_surface_or_image.get_width(),
+                4,
+            ),
+            dtype=np.uint8,
+            buffer=path_surface_or_image.get_data(),
+        )
+        return pyvips.Image.new_from_array(surface_data, interpretation="srgb")
+
+    else:
+        raise ValueError(
+            f"{path_surface_or_image} is a {type(path_surface_or_image).__name__} not a filesystem path, a vips.Image, or a cairo.Surface"
+        )
 
 
 def _prepare_image(
@@ -156,7 +181,7 @@ def generate_footprint(
 
 
 def trace(
-    image_path: pathlib.Path,
+    image: Union[pathlib.Path, pyvips.Image, cairocffi.ImageSurface],
     *,
     invert: bool = False,
     threshold: int = 127,
@@ -166,8 +191,8 @@ def trace(
     bezier_resolution: float = 0.25,
     position: tuple[float, float] = (0, 0),
 ):
-    image = _load_image(image_path)
-    bitmap = _prepare_image(image, invert=invert, threshold=threshold)
+    vips_image = _load_image(image)
+    bitmap = _prepare_image(vips_image, invert=invert, threshold=threshold)
     polys = _trace_bitmap_to_polys(
         bitmap, center=center, bezier_resolution=bezier_resolution
     )
@@ -220,6 +245,7 @@ def main():
         out_file = args.image.with_suffix(".kicad_mod")
         rich.print(f"[yellow]Unable to copy to clipboard, saving as {out_file}")
         out_file.write_text(fp)
+
 
 if __name__ == "__main__":
     main()

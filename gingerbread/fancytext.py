@@ -15,14 +15,10 @@
 # - https://gist.github.com/ynkdir/849071
 
 import argparse
-import atexit
 import html
 import math
-import os
 import pathlib
-import shutil
 import sys
-import tempfile
 from cmath import sqrt
 
 import rich
@@ -333,12 +329,6 @@ def generate(
     dpmm = dpi / 25.4
     flip = layer.startswith("B.")
 
-    workdir = tempfile.mkdtemp()
-    atexit.register(lambda path: shutil.rmtree(path), workdir)
-    workdir = "."
-
-    png_path = os.path.join(workdir, "fancytext.png")
-
     outline_ = Outline(
         fill="black" if outline_fill else "white",
         stroke_width_mm=outline_stroke_mm,
@@ -384,12 +374,9 @@ def generate(
 
     text_.draw(context)
 
-    with open(png_path, "wb") as image_file:
-        surface.write_to_png(image_file)
-
     printv("Tracing image")
     fp = trace.trace(
-        png_path,
+        surface,
         invert=False,
         threshold=127,
         dpi=dpi,

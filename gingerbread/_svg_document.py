@@ -6,10 +6,9 @@ import re
 import time
 
 import cssselect2
-import numpy as np
 from defusedxml import ElementTree
 
-from ._cffi_deps import cairosvg
+from ._cffi_deps import cairocffi, cairosvg
 from ._print import printv
 
 
@@ -109,24 +108,16 @@ class SVGDocument:
     def tostring(self):
         return ElementTree.tostring(self.etree, encoding="unicode")
 
-    def render(self) -> np.ndarray:
+    def render(self) -> cairocffi.Surface:
         printv(f"Rendering SVG dpi={self.dpi}")
         start_time = time.perf_counter()
 
         tree = cairosvg.parser.Tree(bytestring=self.tostring())
 
-        # Hold on to the surface until the SVGDocument object is GCd so that
-        # the surface's image data doesn't get freed.
-        self._surface = cairosvg.surface.PNGSurface(tree, output=None, dpi=self.dpi)
-        self._surface.cairo.flush()
-
-        surface_data = np.ndarray(
-            shape=(self._surface.height, self._surface.width, 4),
-            dtype=np.uint8,
-            buffer=self._surface.cairo.get_data(),
-        )
+        surface = cairosvg.surface.PNGSurface(tree, output=None, dpi=self.dpi)
+        surface.cairo.flush()
 
         delta = time.perf_counter() - start_time
         printv(f"Rendering took {delta:0.2f} s")
 
-        return surface_data
+        return surface.cairo

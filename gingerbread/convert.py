@@ -7,7 +7,6 @@ import datetime
 import pathlib
 import sys
 
-import pyvips
 import svgpathtools
 import svgpathtools.svg_to_paths
 
@@ -188,9 +187,9 @@ class Converter:
     def convert_drills(self):
         print("[bold]Converting drills")
 
-        drill_elms = list(self.doc.query_all("#Drill *")) + list(
-            self.doc.query_all("#Drills *")
-        )
+        drill_elms = []
+        for name in _DRILL_LAYERS:
+            drill_elms.extend(list(self.doc.query_all(f"#{name} *")))
 
         count = 0
         for el in drill_elms:
@@ -257,16 +256,11 @@ class Converter:
                 if cache:
                     svg_filename.write_text(svg_text)
 
-                image_data = doc.render()
+                surface = doc.render()
 
                 printv("Preparing image for tracing")
 
-                # Note: currently this messes up the channel order, since vips is expecting
-                # rgba and cairo gives us pre-multiplied bgra. See
-                # https://github.com/libvips/libvips/blob/master/libvips/foreign/cairo.c
-                # This isn't too much of a concern, as the image gets thresholded down to
-                # to black and white so the pixel order doesn't really matter.
-                image = pyvips.Image.new_from_array(image_data, interpretation="srgb")
+                image = trace._load_image(surface)
 
                 if save_layer_images:
                     printv(f"Saving {png_filename}")
