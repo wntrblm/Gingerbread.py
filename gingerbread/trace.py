@@ -87,12 +87,15 @@ def _prepare_image(
         image = image.flatten(background=[255, 255, 255])
 
     image = image.colourspace("b-w")
-    image_array = image.numpy()
 
     printv(f"Applying {threshold=}")
-    image_array = np.where(image_array > threshold, invert, not invert)
 
-    return image_array
+    if invert:
+        image = image > threshold
+    else:
+        image = image < threshold
+
+    return image.numpy()
 
 
 def _trace_result_to_polys(
