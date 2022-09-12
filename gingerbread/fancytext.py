@@ -419,7 +419,7 @@ def generate(
         context.scale(-1, 1)
         context.translate(-w_px, 0)
 
-    if outline_stroke_mm:
+    if outline_fill or outline_stroke_mm:
         outline_.draw(context, text_)
 
     text_.draw(context)
