@@ -17,6 +17,7 @@
 import argparse
 import html
 import math
+import os
 import pathlib
 import sys
 from cmath import sqrt
@@ -28,6 +29,14 @@ from . import trace
 from ._cffi_deps import cairocffi, pangocairocffi, pangocffi
 from ._print import printv, set_verbose
 from ._utils import default_param_value
+
+
+def _configure_font_map():
+    fontmap = pangocairocffi.ffi.cast(
+        "PangoCairoFontMap *",
+        pangocairocffi.pangocairo.pango_cairo_font_map_new_for_font_type(1),
+    )
+    pangocairocffi.pangocairo.pango_cairo_font_map_set_default(fontmap)
 
 
 def get_context_size(context: cairocffi.Context) -> tuple[int, int]:
@@ -114,9 +123,15 @@ class Text:
         ]
         self.logical_extents_mm = [u / self.dpmm for u in self.logical_extents_px]
 
-    def absolute_extents_px(self, context):
+    def absolute_ink_extents_px(self, context):
+        lx, ly, _, _ = self.absolute_logical_extents_px(context)
+        x, y, w, h = self.ink_extents_px
+
+        return (lx + x, ly + y, w, h)
+
+    def absolute_logical_extents_px(self, context):
         surface_w_px, surface_h_px = get_context_size(context)
-        w, h = self.ink_extents_px[2:]
+        x, y, w, h = self.logical_extents_px
 
         return (surface_w_px / 2 - w / 2, surface_h_px / 2 - h / 2, w, h)
 
@@ -152,11 +167,10 @@ class Text:
     def draw(self, context: cairocffi.Context):
         context.save()
 
-        x, y, w, h = self.absolute_extents_px(context)
-        printv(f"Ink extents: {x=} {y=} {w=} {h=}")
-        y = y - self.ink_extents_px[1]
+        ix, iy, iw, ih = self.absolute_ink_extents_px(context)
+        lx, ly, lw, lh = self.absolute_logical_extents_px(context)
 
-        context.translate(x, y)
+        context.translate(lx, ly)
 
         pangocairocffi.layout_path(context, self._layout)
 
@@ -173,6 +187,38 @@ class Text:
 
         if self.overline:
             self._draw_overbar(context)
+
+        context.restore()
+
+    def draw_debug(self, context: cairocffi.Context):
+        # Draw extents
+        context.save()
+
+        context.set_line_width(5)
+        context.set_line_cap(cairocffi.LINE_CAP_ROUND)
+        context.set_line_join(cairocffi.LINE_JOIN_ROUND)
+
+        x, y, w, h = self.absolute_ink_extents_px(context)
+        printv(f"Absolute ink extents: {x=} px {y=} px {w=} px {h=} px")
+        context.set_source_rgba(1, 0, 0, 1)
+        context.rectangle(x, y, w, h)
+        context.stroke()
+
+        x, y, w, h = self.absolute_logical_extents_px(context)
+        printv(f"Logical extents: {self.logical_extents_px}")
+        printv(f"Absolute logical extents: {x=} px {y=} px {w=} px {h=} px")
+        context.set_source_rgba(0, 1, 0, 1)
+        context.rectangle(x, y, w, h)
+        context.stroke()
+
+        context.set_source_rgba(0, 0, 0, 0.5)
+        w, h = get_context_size(context)
+        context.move_to(0, h / 2)
+        context.line_to(w, h / 2)
+        context.stroke()
+        context.move_to(w / 2, 0)
+        context.line_to(w / 2, h)
+        context.stroke()
 
         context.restore()
 
@@ -204,15 +250,16 @@ class Outline:
         return text
 
     def draw(self, context: cairocffi.Context, text: Text):
-        t_x, t_y, t_w, t_h = text.absolute_extents_px(context)
+        t_x, t_y, t_w, t_h = text.absolute_logical_extents_px(context)
         pad_x = self.padding_mm[0] * text.dpmm
         pad_y = self.padding_mm[1] * text.dpmm
-        pad_x_h = pad_x / 2
-        x = t_x - pad_x_h
+        pad_x_2 = pad_x / 2
+        x = t_x - pad_x_2
         y = t_y - pad_y / 2
         w = t_w + pad_x
         h = t_h + pad_y
-        h_hyp = h / sqrt(2).real
+        hyp = h / sqrt(2).real / 2
+        hyp_2 = hyp / 2
         stroke_width_px = self.stroke_width_mm * text.dpmm
 
         context.save()
@@ -226,36 +273,36 @@ class Outline:
                 context.line_to(w / 2, 0)
                 context.line_to(0, 0)
             case "[":
-                context.move_to(-h_hyp / 2, 0)
-                context.line_to(-h_hyp / 2, h)
+                context.move_to(-hyp_2, 0)
+                context.line_to(-hyp_2, h)
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
-                context.line_to(-h_hyp / 2, 0)
+                context.line_to(-hyp_2, 0)
             case "/":
                 context.move_to(0, 0)
-                context.line_to(-h_hyp, h)
+                context.line_to(-hyp, h)
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
                 context.line_to(0, 0)
             case "\\":
-                context.move_to(-h_hyp, 0)
+                context.move_to(-hyp, 0)
                 context.line_to(0, h)
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
-                context.line_to(-h_hyp, 0)
+                context.line_to(-hyp, 0)
             case "<":
                 context.move_to(0, 0)
-                context.line_to(-h_hyp, h / 2)
+                context.line_to(-hyp, h / 2)
                 context.line_to(0, h)
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
                 context.line_to(0, 0)
             case "(":
-                context.move_to(0, h)
-                context.arc(0, h / 2, h / 2, math.radians(90), math.radians(270))
+                context.move_to(hyp_2, h)
+                context.arc(hyp_2, h / 2, h / 2, math.radians(90), math.radians(270))
                 context.line_to(w / 2, 0)
                 context.line_to(w / 2, h)
-                context.line_to(0, h)
+                context.line_to(hyp_2, h)
 
         match self.right:
             case "|":
@@ -267,31 +314,33 @@ class Outline:
             case "]":
                 context.move_to(w / 2, 0)
                 context.line_to(w / 2, h)
-                context.line_to(w + h_hyp / 2, h)
-                context.line_to(w + h_hyp / 2, 0)
+                context.line_to(w + hyp_2, h)
+                context.line_to(w + hyp_2, 0)
                 context.line_to(w / 2, 0)
             case "/":
                 context.move_to(w / 2, 0)
                 context.line_to(w / 2, h)
                 context.line_to(w, h)
-                context.line_to(w + h_hyp, 0)
+                context.line_to(w + hyp, 0)
                 context.line_to(w / 2, 0)
             case "\\":
                 context.move_to(w / 2, 0)
                 context.line_to(w / 2, h)
-                context.line_to(w + h_hyp, h)
+                context.line_to(w + hyp, h)
                 context.line_to(w, 0)
                 context.line_to(w / 2, 0)
             case ">":
                 context.move_to(w / 2, 0)
                 context.line_to(w / 2, h)
                 context.line_to(w, h)
-                context.line_to(w + h_hyp, h / 2)
+                context.line_to(w + hyp, h / 2)
                 context.line_to(w, 0)
                 context.line_to(w / 2, 0)
             case ")":
                 context.move_to(w / 2, 0)
-                context.arc(w, h / 2, h / 2, math.radians(-90), math.radians(90))
+                context.arc(
+                    w - hyp_2, h / 2, h / 2, math.radians(-90), math.radians(90)
+                )
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
 
@@ -320,11 +369,12 @@ def generate(
     stroke_mm=0,
     align="center",
     line_spacing=1,
-    padding_mm=[1, 1],
+    padding_mm=[0.5, 0.5],
     dpi=2540,
     outline_stroke_mm=0,
     outline_fill=False,
     position=(0, 0),
+    save_png=False,
 ):
     dpmm = dpi / 25.4
     flip = layer.startswith("B.")
@@ -353,8 +403,8 @@ def generate(
         align=align,
     )
 
-    w_px = round(text_.ink_extents_px[2] + (padding_mm[0] + 30) * dpmm)
-    h_px = round(text_.ink_extents_px[3] + (padding_mm[1] + 10) * dpmm)
+    w_px = round(text_.logical_extents_px[2] + (padding_mm[0] + 30) * dpmm)
+    h_px = round(text_.logical_extents_px[3] + (padding_mm[1] + 10) * dpmm)
     printv(f"Surface size {w_px=} {h_px=}")
 
     surface = cairocffi.ImageSurface(cairocffi.FORMAT_ARGB32, w_px, h_px)
@@ -385,6 +435,11 @@ def generate(
         position=position,
     )
 
+    if save_png:
+        printv(f"Saving to {save_png}")
+        text_.draw_debug(context)
+        surface.write_to_png(save_png)
+
     return fp
 
 
@@ -400,6 +455,12 @@ def main():
         "--verbose",
         action="store_true",
         help="Enable to print additional information during generation",
+    )
+
+    parser.add_argument(
+        "--save-png",
+        help="Save a png of the generated text",
+        default=None,
     )
 
     g = parser.add_argument_group(title="text")
@@ -489,6 +550,9 @@ def main():
     elif not args.layer:
         args.layer = "F.SilkS"
 
+    if os.environ.get("GINGERBREAD_USE_FONTCONFIG"):
+        _configure_font_map()
+
     mod_text = generate(
         text=args.text,
         font=args.font,
@@ -506,6 +570,7 @@ def main():
         padding_mm=args.padding,
         outline_stroke_mm=args.outline_stroke,
         outline_fill=args.outline_fill,
+        save_png=args.save_png,
     )
 
     try:
