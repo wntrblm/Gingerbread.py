@@ -292,7 +292,7 @@ class Outline:
                 context.line_to(-hyp, 0)
             case "<":
                 context.move_to(0, 0)
-                context.line_to(-hyp, h / 2)
+                context.line_to(-h / 2, h / 2)
                 context.line_to(0, h)
                 context.line_to(w / 2, h)
                 context.line_to(w / 2, 0)
@@ -333,7 +333,7 @@ class Outline:
                 context.move_to(w / 2, 0)
                 context.line_to(w / 2, h)
                 context.line_to(w, h)
-                context.line_to(w + hyp, h / 2)
+                context.line_to(w + h / 2, h / 2)
                 context.line_to(w, 0)
                 context.line_to(w / 2, 0)
             case ")":
