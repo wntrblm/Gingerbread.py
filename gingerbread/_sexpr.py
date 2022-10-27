@@ -617,7 +617,7 @@ def gr_circle(
     layer = _layer_or_str(layer)
 
     return S(
-        "fp_circle",
+        "gr_circle",
         S("center", *center),
         S("end", *end),
         layer,
